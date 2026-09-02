@@ -9,6 +9,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 from .image import ImageConverter
 from .webm import WebMConverter
+from ..utils import audio
 
 
 class ConversionWorker(QThread):
@@ -56,6 +57,8 @@ class ConversionWorker(QThread):
 
     def run(self):
         changed_folders = set()
+
+        audio.play("audio/started.ogg")
 
         try:
             total_jobs = len(self.jobs)
@@ -115,9 +118,14 @@ class ConversionWorker(QThread):
 
             if self.stop_event.is_set():
                 self.message.emit("Conversion stopped.")
+
+                audio.play("audio/stopped.ogg")
+
             else:
                 self.progress.emit(max(1, self.progress_total), max(1, self.progress_total), 0)
                 self.message.emit("All conversions completed.")
+
+                audio.play("audio/finished.ogg")
 
         except Exception as exc:
             self.error.emit(str(exc))

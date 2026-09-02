@@ -2,7 +2,7 @@
 ## WebM Converter
 
 import re
-import json
+import pickle
 import hashlib
 import subprocess
 import ffmpeg
@@ -12,7 +12,7 @@ from pathlib import Path
 
 from config import WEBM_CACHE_FILE, MINTERPOLATE
 
-from ..webm import normalize_webm_settings
+from ..local_webm import normalize_webm_settings
 
 
 class WebMConverter():
@@ -69,6 +69,7 @@ class WebMConverter():
     def get_cache_file(self):
         return self.folder / WEBM_CACHE_FILE
 
+
     def get_size(self):
 
         output = self.get_output_file()
@@ -93,25 +94,37 @@ class WebMConverter():
     def read_cache(self):
 
         try:
-            with open(self.get_cache_file(), "r", encoding="utf-8") as file:
-                data = json.load(file)
+            with open(self.get_cache_file(), "rb") as file:
+                data = pickle.load(file)
 
-            return data if isinstance(data, dict) else {}
+            if not isinstance(data, dict):
+                return {}
+
+            return data
 
         except Exception:
             return {}
 
+
     def write_cache(self, signature):
 
         try:
-            with open(self.get_cache_file(), "w", encoding="utf-8") as file:
-                json.dump({"version": 1, "signature": signature}, file, ensure_ascii=False, indent=2, sort_keys=True)
+            with open(self.get_cache_file(), "wb") as file:
+                pickle.dump(
+                    {
+                        "version": 1,
+                        "signature": signature,
+                    },
+                    file,
+                    protocol=pickle.HIGHEST_PROTOCOL,
+                )
 
         except OSError as exc:
             self.log(f"WebM cache warning: {exc}")
 
 
     def get_source_signature(self, images):
+
         frames = []
 
         for image in images:
@@ -120,10 +133,28 @@ class WebMConverter():
             except OSError:
                 continue
 
-            frames.append({"path": image.resolve().as_posix(), "mtime_ns": stat.st_mtime_ns, "size": stat.st_size})
+            frames.append(
+                (
+                    image.resolve().as_posix(),
+                    stat.st_mtime_ns,
+                    stat.st_size,
+                )
+            )
 
-        data = {"version": 2, "frames": frames, "settings": self.settings, "preset": {"suffix": self.preset.suffix, "output_folder": self.preset.output_folder}}
-        serialized = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        data = (
+            2,
+            tuple(frames),
+            tuple(sorted(self.settings.items())),
+            (
+                self.preset.suffix,
+                self.preset.output_folder,
+            ),
+        )
+
+        serialized = pickle.dumps(
+            data,
+            protocol=pickle.HIGHEST_PROTOCOL,
+        )
 
         return hashlib.sha256(serialized).hexdigest()
 

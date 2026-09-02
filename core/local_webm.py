@@ -6,10 +6,11 @@ import re
 from pathlib import Path
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QDialog, QDialogButtonBox, QFormLayout,
-    QMessageBox, QSpinBox, QDoubleSpinBox, QLabel, QCheckBox
+    QVBoxLayout, QHBoxLayout,
+    QDialog, QDialogButtonBox, QFormLayout,
+    QMessageBox, QSpinBox, QDoubleSpinBox, QLabel,
+    QCheckBox, QLineEdit, QPushButton, QFileDialog
 )
-
 from config import LOCAL_WEBM_FILE, ICON
 
 from .resize import ResizeControls
@@ -98,15 +99,12 @@ class LocalWebMDialog(QDialog):
         self.deleted = False
         self.setWindowTitle(f"Local WebM Settings - {preset.name}")
         self.setWindowIcon(QIcon(ICON))
-        self.resize(620, 620)
+        self.resize(500, 0)
 
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.add_controls(form)
         layout.addLayout(form)
-        info = QLabel(f"<small>Folder: {self.folder}<br>Preset: {preset.name}<br>These settings override the global WebM preset only for this folder.</small>")
-        info.setWordWrap(True)
-        layout.addWidget(info)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
 
@@ -118,8 +116,34 @@ class LocalWebMDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+    def choose_output(self):
+
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Choose output folder"
+        )
+
+        if folder:
+            self.output_folder.setText(
+                str(Path(folder).resolve())
+            )
+
     def add_controls(self, form):
         s = self.settings
+
+        output_layout = QHBoxLayout()
+        self.output_folder = QLineEdit()
+        self.output_folder.setText(s.get("output_folder", self.preset.output_folder))
+        output_button = QPushButton("Choose")
+        output_button.clicked.connect(self.choose_output)
+        output_layout.addWidget(self.output_folder)
+        output_layout.addWidget(output_button)
+        form.addRow("Output folder:", output_layout)
+
+        self.suffix = QLineEdit()
+        self.suffix.setText(s.get("suffix", self.preset.suffix))
+        self.suffix.setPlaceholderText("Example: @2")
+        form.addRow("File suffix:", self.suffix)
 
         self.input_fps = QDoubleSpinBox()
         self.input_fps.setRange(0.1, 1000)
@@ -171,7 +195,7 @@ class LocalWebMDialog(QDialog):
         self.image_quality = QSpinBox()
         self.image_quality.setRange(1, 100)
         self.image_quality.setValue(s["image_quality"])
-        form.addRow("Preview quality:", self.image_quality)
+        form.addRow("Image quality:", self.image_quality)
 
         self.sharpen = QDoubleSpinBox()
         self.sharpen.setRange(0, 10)
@@ -195,6 +219,8 @@ class LocalWebMDialog(QDialog):
     def collect(self):
         resize = self.resize_controls.values()
         result = {
+            "suffix": self.suffix.text(),
+            "output_folder": self.output_folder.text().strip(),
             "input_fps": self.input_fps.value(),
             "output_fps": self.output_fps.value(),
             "speed": self.speed.value(),
@@ -217,7 +243,7 @@ class LocalWebMDialog(QDialog):
         return result
 
     def delete_local(self):
-        result = QMessageBox.question(self, "Delete local settings", f"Delete local WebM settings for '{self.preset.name}' in:\n{self.folder}?")
+        result = QMessageBox.question(self, "Delete local settings", f'Delete local WebM settings for "{self.preset.name}" in:\n{self.folder}?')
         if result == QMessageBox.StandardButton.Yes:
             self.deleted = True
             self.accept()

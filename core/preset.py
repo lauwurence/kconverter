@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 from config import ICON
 from .resize import ResizeControls
 
-from .webm import normalize_webm_settings
+from .local_webm import normalize_webm_settings
 
 
 class Preset():
@@ -208,7 +208,7 @@ class PresetDialog(QDialog):
         self.image_quality = QSpinBox()
         self.image_quality.setRange(1, 100)
         self.image_quality.setValue(settings["image_quality"])
-        form.addRow("Preview quality:", self.image_quality)
+        form.addRow("Image quality:", self.image_quality)
         self.sharpen = QDoubleSpinBox()
         self.sharpen.setRange(0, 10)
         self.sharpen.setDecimals(2)

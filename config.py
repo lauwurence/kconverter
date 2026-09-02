@@ -17,8 +17,9 @@ ROOT_ROW_HEIGHT = 60
 FOLDER_ROW_HEIGHT = 36
 
 PROJECT_EXTENSION = ".kcp"
-LOCAL_WEBM_FILE = ".kconverter_webm.json"
-WEBM_CACHE_FILE = ".kconverter_webm_cache.json"
+LOCAL_WEBM_FILE = ".settings"
+LOCAL_IMAGE_FILE = ".settings"
+WEBM_CACHE_FILE = ".cache"
 
 THUMBNAIL_DIR = LOCAL_DIR / ".thumbnails"
 SAVES_DIR = LOCAL_DIR / "saves"

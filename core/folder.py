@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 
 from config import ICON
 from .preset import Preset, PresetDialog
-from .webm import default_webm_settings, normalize_webm_settings
+from .local_webm import default_webm_settings, normalize_webm_settings
 
 
 class FolderSettings():

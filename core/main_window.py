@@ -1,9 +1,8 @@
 ################################################################################
 ## Main Window
 
-import json
-import pickle
 import os
+import pickle
 
 from pathlib import Path
 from PyQt6.QtCore import Qt, QUrl, QSize, QTimer
@@ -12,23 +11,25 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout,
     QHBoxLayout, QPushButton, QTreeWidgetItem,
     QFileDialog, QTextEdit, QProgressBar, QDialog, QMessageBox,
-    QLabel, QToolButton
+    QLabel, QToolButton, QMenu
 )
 
 from core.conversion.worker import ConversionWorker
 from core.conversion.image import ImageConverter
 from core.conversion.webm import WebMConverter
-from core.webm import LocalWebMDialog, normalize_webm_settings
+from core.local_webm import LocalWebMDialog, normalize_webm_settings
+from core.local_image import LocalImageDialog
 from core.folder import FolderSettings, SettingsDialog
 from core.thumbnail import ThumbnailWorker
 from core.rescan import RescanWorker
 from core.folder_tree import FolderTree
-
+from core.preset import Preset, PresetDialog
 from core.utils import pathutils, textutils
 
 from config import (
     VERSION, SAVES_DIR,
-    PERSISTENT_FILE, PROJECT_EXTENSION, LOCAL_WEBM_FILE,
+    PERSISTENT_FILE, PROJECT_EXTENSION,
+    LOCAL_WEBM_FILE, LOCAL_IMAGE_FILE,
     ROOT_ROW_HEIGHT,
     FOLDER_ROW_HEIGHT,
     ICON,
@@ -209,11 +210,38 @@ class MainWindow(QMainWindow):
         self.rescan_button.clicked.connect(lambda: self.rescan())
         top.addWidget(self.rescan_button)
 
+        # Move folder up
+        self.move_folder_up_button = QPushButton()
+        self.move_folder_up_button.setIcon(QIcon("icons/arrow_up.svg"))
+        self.move_folder_up_button.setToolTip("Move selected root folder up")
+        self.move_folder_up_button.setFixedSize(28, 28)
+        self.move_folder_up_button.clicked.connect(self.move_selected_folder_up)
+        top.addWidget(self.move_folder_up_button)
+
+        # Move folder down
+        self.move_folder_down_button = QPushButton()
+        self.move_folder_down_button.setIcon(QIcon("icons/arrow_down.svg"))
+        self.move_folder_down_button.setToolTip("Move selected root folder down")
+        self.move_folder_down_button.setFixedSize(28, 28)
+        self.move_folder_down_button.clicked.connect(self.move_selected_folder_down)
+        top.addWidget(self.move_folder_down_button)
+
         top.addStretch()
 
         # Folders
         self.tree = FolderTree()
         self.tree.folders_dropped.connect(self.add_folders)
+        self.tree.currentItemChanged.connect(
+            lambda current, previous: self.update_folder_move_buttons()
+        )
+
+        self.tree.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self.tree.customContextMenuRequested.connect(
+            self.show_folder_context_menu
+        )
+
         layout.addWidget(self.tree)
 
         # Log
@@ -264,6 +292,111 @@ class MainWindow(QMainWindow):
         self.convert_all_button.clicked.connect(self.start_all_conversions)
         bottom.addWidget(self.convert_all_button)
 
+        self.update_folder_move_buttons()
+
+
+    def move_selected_folder_up(self):
+        item = self.tree.currentItem()
+
+        if item is None:
+            return
+
+        # Только корневые папки.
+        if item.parent() is not None:
+            return
+
+        index = self.tree.indexOfTopLevelItem(item)
+
+        if index <= 0:
+            return
+
+        settings = self.settings_by_item.get(id(item))
+
+        if settings is None:
+            return
+
+        # Меняем порядок в модели.
+        self.folders[index - 1], self.folders[index] = (
+            self.folders[index],
+            self.folders[index - 1],
+        )
+
+        self.mark_dirty()
+
+        # Пересоздаём дерево, чтобы корректно восстановить
+        # все item widgets.
+        self.rebuild_folders()
+
+        # Снова выбираем перемещённую папку.
+        new_item = self.items_by_path.get(
+            str(Path(settings.source_folder).resolve())
+        )
+
+        if new_item is not None:
+            self.tree.setCurrentItem(new_item)
+
+        self.update_folder_move_buttons()
+
+
+    def update_folder_move_buttons(self):
+        item = self.tree.currentItem()
+
+        if item is None or item.parent() is not None:
+            self.move_folder_up_button.setEnabled(False)
+            self.move_folder_down_button.setEnabled(False)
+            return
+
+        index = self.tree.indexOfTopLevelItem(item)
+        count = self.tree.topLevelItemCount()
+
+        self.move_folder_up_button.setEnabled(index > 0)
+        self.move_folder_down_button.setEnabled(
+            index >= 0 and index < count - 1
+        )
+
+
+    def move_selected_folder_down(self):
+        item = self.tree.currentItem()
+
+        if item is None:
+            return
+
+        # Только корневые папки.
+        if item.parent() is not None:
+            return
+
+        index = self.tree.indexOfTopLevelItem(item)
+        count = self.tree.topLevelItemCount()
+
+        if index < 0 or index >= count - 1:
+            return
+
+        settings = self.settings_by_item.get(id(item))
+
+        if settings is None:
+            return
+
+        # Меняем порядок в модели.
+        self.folders[index + 1], self.folders[index] = (
+            self.folders[index],
+            self.folders[index + 1],
+        )
+
+        self.mark_dirty()
+
+        # Пересоздаём дерево, чтобы корректно восстановить
+        # все item widgets.
+        self.rebuild_folders()
+
+        # Снова выбираем перемещённую папку.
+        new_item = self.items_by_path.get(
+            str(Path(settings.source_folder).resolve())
+        )
+
+        if new_item is not None:
+            self.tree.setCurrentItem(new_item)
+
+        self.update_folder_move_buttons()
 
 
     def setup_menu(self):
@@ -442,7 +575,10 @@ class MainWindow(QMainWindow):
 
         try:
             entries = sorted(
-                folder.iterdir(),
+                (
+                    path for path in folder.iterdir()
+                    if not path.name.startswith(".")
+                ),
                 key=lambda path: (
                     not path.is_dir(),
                     path.name.lower(),
@@ -513,18 +649,70 @@ class MainWindow(QMainWindow):
                 layout.addWidget(self.create_separator())
 
             if settings.mode == "WebM":
-                local_button = QToolButton()
-                has_local = self.has_local_webm_settings(folder, preset)
-                local_button.setIcon(QIcon("icons/settings_local.svg") if has_local else QIcon("icons/settings.svg"))
-                local_button.setToolTip("Local WebM settings" + (" (override active)" if has_local else ""))
-                local_button.setFixedSize(27, 25)
-                local_button.clicked.connect(lambda checked=False, s=settings, p=preset, f=Path(folder): self.edit_local_webm(s, p, f))
-                layout.addWidget(local_button)
 
-            if settings.mode == "Images":
-                size = self.get_folder_output_size(settings, preset, folder)
-            else:
-                size = self.get_webm_output_size(settings, preset, folder)
+                if not root:
+                    local_button = QToolButton()
+
+                    has_local = self.has_local_webm_settings(
+                        folder,
+                        preset,
+                    )
+
+                    local_button.setIcon(
+                        QIcon(
+                            "icons/settings_local.svg"
+                            if has_local
+                            else "icons/settings.svg"
+                        )
+                    )
+
+                    local_button.setToolTip("Local WebM settings" + (" (override active)" if has_local else ""))
+                    local_button.setFixedSize(27, 25)
+
+                    local_button.clicked.connect(
+                        lambda checked=False,
+                            s=settings,
+                            p=preset,
+                            f=Path(folder):
+                            self.edit_local_webm(s, p, f)
+                    )
+
+                    layout.addWidget(local_button)
+
+            elif settings.mode == "Images":
+
+                if not root:
+                    local_button = QToolButton()
+
+                    has_local = self.has_local_image_settings(
+                        folder,
+                        preset,
+                    )
+
+                    local_button.setIcon(
+                        QIcon(
+                            "icons/settings_local.svg"
+                            if has_local
+                            else "icons/settings.svg"
+                        )
+                    )
+
+                    local_button.setToolTip(
+                        "Local Image settings"
+                        + (" (override active)" if has_local else "")
+                    )
+
+                    local_button.setFixedSize(27, 25)
+
+                    local_button.clicked.connect(
+                        lambda checked=False,
+                            s=settings,
+                            p=preset,
+                            f=Path(folder):
+                            self.edit_local_image(s, p, f)
+                    )
+
+                    layout.addWidget(local_button)
 
             button = QPushButton(preset.name)
 
@@ -542,6 +730,14 @@ class MainWindow(QMainWindow):
             button.setToolTip(f'Convert this folder using "{preset.name}"')
             button.setFixedHeight(25)
             button.setFixedWidth(75)
+
+            if root:
+                button.setFixedWidth(75 + 31)
+
+                if settings.mode == "Images":
+                    button.setFixedWidth(75 + 30 + 30)
+
+                button.setFixedHeight(30)
 
             if settings.mode == "Images" and preset.output_folder:
                 if self.folder_has_outdated_images(settings, preset, folder):
@@ -565,14 +761,29 @@ class MainWindow(QMainWindow):
             layout.addWidget(button)
 
             if settings.mode == "Images":
-                open_button = QToolButton()
-                open_button.setIcon(QIcon("icons/folder.svg"))
-                open_button.setToolTip("Open converted images folder")
-                open_button.setFixedSize(25, 25)
-                open_button.clicked.connect(lambda checked=False, s=settings, p=preset, f=Path(folder): self.open_conversion_result(s, p, f))
-                layout.addWidget(open_button)
-                size_label = QLabel(textutils.format_size(size))
+
+                if not root:
+                    open_button = QToolButton()
+                    open_button.setIcon(QIcon("icons/folder.svg"))
+                    open_button.setToolTip("Open converted images folder")
+                    open_button.setFixedWidth(25)
+                    open_button.setFixedHeight(25)
+
+                    open_button.clicked.connect(lambda checked=False, s=settings, p=preset, f=Path(folder): self.open_conversion_result(s, p, f))
+                    open_button.setEnabled(bool(preset.output_folder))
+                    layout.addWidget(open_button)
+
+                folder_size = self.get_folder_output_size(
+                    settings,
+                    preset,
+                    folder,
+                )
+
+                size_label = QLabel(textutils.format_size(folder_size))
                 size_label.setFixedWidth(75)
+                size_label.setStyleSheet(
+                    "QLabel { color: #888; }"
+                )
                 size_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 layout.addWidget(size_label)
 
@@ -585,38 +796,190 @@ class MainWindow(QMainWindow):
 
                 if webm_output is not None and webm_output.is_file():
                     webm_size = webm_output.stat().st_size
+
                     webm_button = QPushButton(textutils.format_size(webm_size))
 
                     if not webm_size:
-                        webm_button.setIcon(QIcon("icons/webm_play_error.svg"))
+                        webm_button.setIcon(
+                            QIcon("icons/webm_play_error.svg")
+                        )
                     else:
-                        webm_button.setIcon(QIcon("icons/webm_play.svg"))
+                        webm_button.setIcon(
+                            QIcon("icons/webm_play.svg")
+                        )
 
                     webm_button.setFixedHeight(25)
                     webm_button.setFixedWidth(75)
-                    webm_button.setToolTip(f"Open WebM animation\n{webm_output}")
-                    webm_button.clicked.connect(lambda checked=False, s=settings, p=preset, f=Path(folder): self.open_conversion_result(s, p, f))
+
+                    webm_button.setToolTip(
+                        f"Open WebM animation\n{webm_output}"
+                    )
+
+                    webm_button.clicked.connect(
+                        lambda checked=False, s=settings, p=preset, f=Path(folder):
+                            self.open_conversion_result(s, p, f)
+                    )
+
+                    webm_button.setContextMenuPolicy(
+                        Qt.ContextMenuPolicy.CustomContextMenu
+                    )
+
+                    webm_button.customContextMenuRequested.connect(
+                        lambda pos,
+                            button=webm_button,
+                            path=webm_output,
+                            folder=Path(folder):
+                            self.show_output_context_menu(
+                                button,
+                                path,
+                                refresh_callback=lambda f=folder:
+                                    self._refresh_folder_status_widgets({f}),
+                            )
+                    )
 
                 else:
-                    webm_button = QPushButton("-")
-                    webm_button.setFixedHeight(25)
+                    webm_button = QPushButton(textutils.format_size(0))
+                    webm_button.setFixedHeight(25 if not root else 30)
                     webm_button.setFixedWidth(75)
                     webm_button.setEnabled(False)
-                    webm_button.setStyleSheet("QPushButton:disabled { color: #888; }")
+                    webm_button.setFlat(True)
+                    webm_button.setStyleSheet(
+                        "QPushButton:disabled { color: #888; }"
+                    )
                     webm_button.setToolTip("WebM file does not exist yet")
 
                 layout.addWidget(webm_button)
 
         all_button = QPushButton("All")
         all_button.setToolTip("Convert this folder using all presets")
-        all_button.setFixedHeight(25)
-        all_button.setFixedWidth(75)
+        all_button.setFixedHeight(25 if not root else 30)
+        all_button.setFixedWidth(40)
         all_button.clicked.connect(lambda checked=False, s=settings, f=Path(folder): self.start_folder_all_conversions(s, f))
         layout.addWidget(self.create_separator())
         layout.addWidget(all_button)
         layout.addStretch()
 
         return widget
+
+
+    def show_folder_context_menu(self, pos):
+
+        item = self.tree.itemAt(pos)
+
+        if item is None:
+            return
+
+        path = item.data(
+            0,
+            Qt.ItemDataRole.UserRole
+        )
+
+        if not path:
+            return
+
+        path = Path(path).resolve()
+
+        if not path.is_dir():
+            return
+
+        menu = QMenu(self.tree)
+
+        open_folder_action = menu.addAction("Open Folder")
+
+        action = menu.exec(
+            self.tree.viewport().mapToGlobal(pos)
+        )
+
+        if action == open_folder_action:
+            QDesktopServices.openUrl(
+                QUrl.fromLocalFile(str(path))
+            )
+
+
+    def show_output_context_menu(
+        self,
+        button,
+        path,
+        refresh_callback=None,
+    ):
+        path = Path(path).resolve()
+
+        if not path.exists():
+            return
+
+        menu = QMenu(button)
+
+        open_action = menu.addAction("Open File")
+        open_folder_action = menu.addAction("Open Folder")
+
+        menu.addSeparator()
+
+        delete_action = menu.addAction("Delete File")
+
+        action = menu.exec(
+            button.mapToGlobal(
+                button.rect().bottomLeft()
+            )
+        )
+
+        if action == open_action:
+            self.open_file(path)
+
+        elif action == open_folder_action:
+            if path.exists():
+                QDesktopServices.openUrl(
+                    QUrl.fromLocalFile(str(path.parent))
+                )
+
+        elif action == delete_action:
+
+            if not path.is_file():
+                return
+
+            try:
+                path.unlink()
+
+            except OSError as exc:
+                QMessageBox.critical(
+                    self,
+                    "Delete error",
+                    str(exc),
+                )
+                return
+
+            # Файл удалён. Теперь обновляем именно тот
+            # элемент интерфейса, которому он принадлежит.
+            if refresh_callback:
+                refresh_callback()
+
+
+    def _refresh_file_status_widget(self, source):
+        source = Path(source).resolve()
+
+        item = self.items_by_path.get(str(source))
+
+        if item is None:
+            return
+
+        settings = self.find_settings_for_path(source)
+
+        if settings is None:
+            return
+
+        # Сбрасываем кэш статуса исходного файла.
+        self._invalidate_file_status_cache(source.parent)
+
+        # Пересоздаём виджет статуса.
+        self.tree.removeItemWidget(item, 1)
+
+        self.tree.setItemWidget(
+            item,
+            1,
+            self.create_file_status(
+                settings,
+                source,
+            )
+        )
 
 
     def update_conversion_button_states(self):
@@ -668,8 +1031,8 @@ class MainWindow(QMainWindow):
     def create_file_status(self, settings, source):
         widget = QWidget()
         layout = QHBoxLayout(widget)
-        layout.setContentsMargins(4 + 108, 0, 4, 0)
-        layout.setSpacing(130)
+        layout.setContentsMargins(4 + 138, 0, 4, 0)
+        layout.setSpacing(160)
 
         for preset in settings.presets:
             output, status = self.get_file_status(source, preset)
@@ -677,12 +1040,11 @@ class MainWindow(QMainWindow):
             button = QPushButton(status)
             button.setFixedHeight(25)
             button.setFixedWidth(75)
+            button.setFlat(True)
 
             if output is not None and output.exists():
                 button.setIcon(QIcon("icons/open_image.svg"))
-                button.setToolTip(
-                    f"Open converted image: {preset.name}\n{output}"
-                )
+                button.setToolTip(f"Open converted image: {preset.name}\n{output}")
 
                 if status == "Outdated":
                     button.setStyleSheet("""
@@ -699,10 +1061,29 @@ class MainWindow(QMainWindow):
                     lambda checked=False, path=output: self.open_file(path)
                 )
 
+                button.setContextMenuPolicy(
+                    Qt.ContextMenuPolicy.CustomContextMenu
+                )
+
+                button.customContextMenuRequested.connect(
+                    lambda pos,
+                        button=button,
+                        path=output,
+                        source=Path(source):
+                        self.show_output_context_menu(
+                            button,
+                            path,
+                            refresh_callback=lambda s=source:
+                                self._refresh_file_status_widget(s),
+                        )
+                )
+
             else:
 
                 if not output:
-                    button.setIcon(QIcon("icons/not_configured.svg"))
+                    button.setText("")
+                    # button.setIcon(QIcon("icons/not_configured.svg"))
+
                 button.setEnabled(False)
                 button.setStyleSheet(
                     "QPushButton:disabled { color: #888; }"
@@ -724,12 +1105,20 @@ class MainWindow(QMainWindow):
 
         folder = Path(folder).resolve()
 
+        effective_preset = self.get_local_image_preset(
+            folder,
+            preset,
+        )
+
         signature = self._image_folder_signature(folder)
 
         if signature is None:
             return False
 
-        key = self._folder_cache_key(folder, preset)
+        key = self._folder_cache_key(
+            folder,
+            effective_preset,
+        )
 
         cached = self._folder_status_cache.get(key)
 
@@ -740,9 +1129,14 @@ class MainWindow(QMainWindow):
         ):
             return cached["outdated"]
 
+        effective_preset = self.get_local_image_preset(
+            folder,
+            preset,
+        )
+
         converter = ImageConverter(
             settings.source_folder,
-            preset,
+            effective_preset,
             source_root=settings.source_folder,
         )
 
@@ -781,13 +1175,22 @@ class MainWindow(QMainWindow):
         return outdated
 
 
-    def get_folder_output_size( self, settings, preset, folder):
+    def get_folder_output_size(self, settings, preset, folder):
 
         if not preset.output_folder.strip():
             return 0
 
         folder = Path(folder).resolve()
-        key = self._folder_cache_key(folder, preset)
+
+        effective_preset = self.get_local_image_preset(
+            folder,
+            preset,
+        )
+
+        key = self._folder_cache_key(
+            folder,
+            effective_preset,
+        )
 
         signature = self._image_folder_signature(folder)
 
@@ -805,14 +1208,13 @@ class MainWindow(QMainWindow):
 
         converter = ImageConverter(
             settings.source_folder,
-            preset,
+            effective_preset,
             source_root=settings.source_folder,
         )
 
         total = 0
 
         try:
-
             for source in iter_png_files(folder):
 
                 if not source.is_file():
@@ -879,12 +1281,23 @@ class MainWindow(QMainWindow):
 
 
     def get_output_file(self, source, preset):
+        source = Path(source).resolve()
+
         settings = self.find_settings_for_path(source)
 
         if settings is None or not preset.output_folder:
             return None
 
-        return ImageConverter(settings.source_folder, preset).get_output_file(Path(source))
+        effective_preset = self.get_local_image_preset(
+            source.parent,
+            preset,
+        )
+
+        return ImageConverter(
+            settings.source_folder,
+            effective_preset,
+            source_root=settings.source_folder,
+        ).get_output_file(source)
 
 
     def get_file_status(self, source, preset):
@@ -954,12 +1367,228 @@ class MainWindow(QMainWindow):
                 pass
 
 
+    def read_local_image_settings(self, folder):
+        path = Path(folder).resolve() / LOCAL_IMAGE_FILE
+
+        try:
+            with open(path, "rb") as file:
+                data = pickle.load(file)
+
+            if isinstance(data, dict):
+                return data
+
+        except Exception:
+            pass
+
+        return {}
+
+
+    def write_local_image_settings(self, folder, data):
+        path = Path(folder).resolve() / LOCAL_IMAGE_FILE
+
+        if not data:
+            path.unlink(missing_ok=True)
+            return
+
+        try:
+            with open(path, "wb") as file:
+                pickle.dump(
+                    data,
+                    file,
+                    protocol=pickle.HIGHEST_PROTOCOL,
+                )
+
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Local settings error",
+                str(exc),
+            )
+
+
+    def get_local_image_preset(self, folder, preset):
+        """
+        Return an effective Images preset for this folder.
+
+        The global preset is used as the base and local settings
+        override it when present.
+        """
+
+        if not preset:
+            return None
+
+        folder = Path(folder).resolve()
+
+        data = self.read_local_image_settings(folder)
+        local_data = data.get(preset.name)
+
+        # No local override -> use the global preset.
+        if not isinstance(local_data, dict):
+            return preset
+
+        try:
+            local_preset = Preset.from_dict(preset.to_dict())
+
+            for key, value in local_data.items():
+                if key == "name":
+                    continue
+
+                if hasattr(local_preset, key):
+                    setattr(local_preset, key, value)
+
+            # Local preset always keeps the global preset name.
+            local_preset.name = preset.name
+
+            return local_preset
+
+        except Exception:
+            return preset
+
+
+    def has_local_image_settings(self, folder, preset):
+        data = self.read_local_image_settings(folder)
+
+        return isinstance(data.get(preset.name), dict)
+
+
+    def remove_local_image_settings(self, folder, preset):
+
+        folder = Path(folder).resolve()
+
+        data = self.read_local_image_settings(folder)
+
+        if preset.name not in data:
+            return
+
+        data.pop(preset.name, None)
+
+        self.write_local_image_settings(
+            folder,
+            data,
+        )
+
+        self.mark_dirty()
+
+        self._refresh_local_image_status(folder)
+
+
+    def _refresh_local_image_status(self, folder):
+        folder = Path(folder).resolve()
+
+        item = self.items_by_path.get(str(folder))
+
+        if item is None:
+            return
+
+        settings = self.settings_by_item.get(id(item))
+
+        if settings is None:
+            settings = self.find_settings_for_path(folder)
+
+        if settings is None:
+            return
+
+        root = (
+            folder == Path(settings.source_folder).resolve()
+        )
+
+        self._invalidate_file_status_cache(folder)
+        self._invalidate_folder_cache(folder)
+
+        self.tree.removeItemWidget(item, 1)
+
+        self.tree.setItemWidget(
+            item,
+            1,
+            self.create_folder_status(
+                settings,
+                folder,
+                root=root,
+            )
+        )
+
+
+    def edit_local_image(self, settings, preset, folder):
+
+        if settings.mode != "Images":
+            return
+
+        folder = Path(folder).resolve()
+
+        local_data = self.read_local_image_settings(
+            folder
+        )
+
+        # Start with the global preset.
+        effective = Preset.from_dict(
+            preset.to_dict()
+        )
+
+        # Apply existing local override.
+        current = local_data.get(
+            preset.name
+        )
+
+        if isinstance(current, dict):
+
+            for key, value in current.items():
+
+                if key == "name":
+                    continue
+
+                if hasattr(effective, key):
+                    setattr(
+                        effective,
+                        key,
+                        value,
+                    )
+
+        # Local settings always belong to the global preset.
+        effective.name = preset.name
+
+        dialog = LocalImageDialog(
+            folder,
+            effective,
+            self,
+        )
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        if dialog.deleted:
+
+            local_data.pop(
+                preset.name,
+                None,
+            )
+
+        else:
+
+            # Never change the preset identity.
+            effective.name = preset.name
+
+            local_data[preset.name] = (
+                effective.to_dict()
+            )
+
+        self.write_local_image_settings(
+            folder,
+            local_data,
+        )
+
+        self.mark_dirty()
+
+        self._refresh_local_image_status(
+            folder
+        )
+
+
     def read_local_webm_settings(self, folder):
         path = Path(folder).resolve() / LOCAL_WEBM_FILE
 
         try:
-            with open(path, "r", encoding="utf-8") as file:
-                data = json.load(file)
+            with open(path, "rb") as file:
+                data = pickle.load(file)
 
             if isinstance(data, dict):
                 return data
@@ -978,11 +1607,19 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            with open(path, "w", encoding="utf-8") as file:
-                json.dump(data, file, ensure_ascii=False, indent=2)
+            with open(path, "wb") as file:
+                pickle.dump(
+                    data,
+                    file,
+                    protocol=pickle.HIGHEST_PROTOCOL,
+                )
 
         except Exception as exc:
-            QMessageBox.critical(self, "Local settings error", str(exc))
+            QMessageBox.critical(
+                self,
+                "Local settings error",
+                str(exc),
+            )
 
 
     def get_local_preset(self, folder, preset):
@@ -1019,33 +1656,80 @@ class MainWindow(QMainWindow):
 
         self.write_local_webm_settings(folder, local_data)
         self.mark_dirty()
-        self.rescan()
+
+        self._refresh_local_webm_status(folder)
+
+
+    def _refresh_local_webm_status(self, folder):
+        folder = Path(folder).resolve()
+
+        item = self.items_by_path.get(str(folder))
+
+        if item is None:
+            return
+
+        settings = self.settings_by_item.get(id(item))
+
+        if settings is None:
+            settings = self.find_settings_for_path(folder)
+
+        if settings is None:
+            return
+
+        root = (
+            folder == Path(settings.source_folder).resolve()
+        )
+
+        self.tree.removeItemWidget(item, 1)
+
+        self.tree.setItemWidget(
+            item,
+            1,
+            self.create_folder_status(
+                settings,
+                folder,
+                root=root,
+            )
+        )
 
 
     def open_conversion_result(self, settings, preset, folder):
         folder = Path(folder).resolve()
 
         if settings.mode == "Images":
-            output = Path(preset.output_folder)
 
-            if not output.is_absolute():
-                output = folder.parent / output
+            if not preset.output_folder:
+                return
 
-            output = output.resolve()
+            local_path = folder.relative_to(settings.source_folder)
+            path = preset.output_folder / local_path
 
-            if output.exists():
-                QDesktopServices.openUrl(QUrl.fromLocalFile(str(output)))
+            if path.exists():
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
             else:
-                QMessageBox.information(self, "Output not found", f"Output folder does not exist yet:\n{output}")
+                QMessageBox.information(
+                    self,
+                    "Output not found",
+                    f"Output folder does not exist yet:\n{path}"
+                )
 
         else:
             local = self.get_local_preset(folder, preset)
-            output = WebMConverter(folder, preset, local).get_output_file()
+
+            output = WebMConverter(
+                folder,
+                preset,
+                local
+            ).get_output_file()
 
             if output.exists():
                 self.open_file(output)
             else:
-                QMessageBox.information(self, "WebM not found", f"WebM file does not exist yet:\n{output}")
+                QMessageBox.information(
+                    self,
+                    "WebM not found",
+                    f"WebM file does not exist yet:\n{output}"
+                )
 
 
     def start_thumbnail_worker(self, folder=None):
@@ -1580,10 +2264,17 @@ class MainWindow(QMainWindow):
         else:
             folder = Path(folder).resolve()
 
+            effective_preset = self.get_local_image_preset(
+                folder,
+                preset,
+            )
+
             self.enqueue_conversion((
                 settings,
-                preset, folder,
-                None))
+                effective_preset,
+                folder,
+                None,
+            ))
 
 
     def start_folder_all_conversions(self, settings, folder):
@@ -1597,14 +2288,30 @@ class MainWindow(QMainWindow):
             if not preset.output_folder:
                 continue
 
-            local = (
-                self.get_local_preset(folder, preset)
-                if settings.mode == "WebM"
-                else None
-            )
+            if settings.mode == "WebM":
+
+                job_preset = preset
+                local = self.get_local_preset(
+                    folder,
+                    preset,
+                )
+
+            else:
+
+                job_preset = self.get_local_image_preset(
+                    folder,
+                    preset,
+                )
+
+                local = None
 
             jobs.append(
-                (settings, preset, folder, local)
+                (
+                    settings,
+                    job_preset,
+                    folder,
+                    local,
+                )
             )
 
         if not jobs:
@@ -1639,17 +2346,31 @@ class MainWindow(QMainWindow):
 
                 for folder in folders:
 
-                    local = (
-                        self.get_local_preset(folder, preset)
-                        if settings.mode == "WebM"
-                        else None
-                    )
+                    folder = Path(folder).resolve()
+
+                    if settings.mode == "WebM":
+
+                        job_preset = preset
+
+                        local = self.get_local_preset(
+                            folder,
+                            preset,
+                        )
+
+                    else:
+
+                        job_preset = self.get_local_image_preset(
+                            folder,
+                            preset,
+                        )
+
+                        local = None
 
                     jobs.append(
                         (
                             settings,
-                            preset,
-                            Path(folder).resolve(),
+                            job_preset,
+                            folder,
                             local,
                         )
                     )

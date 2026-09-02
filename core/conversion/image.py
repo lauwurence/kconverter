@@ -281,7 +281,6 @@ class ImageConverter():
         workers = []
         max_workers = max(2, int((os.cpu_count() or 1) * 0.925))
         indexed_files = list(enumerate(all_files, 1))
-        pending_indexes = {index for index, _ in indexed_files}
 
         for index, source in indexed_files:
 
