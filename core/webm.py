@@ -96,7 +96,7 @@ class LocalWebMDialog(QDialog):
         self.preset = preset
         self.settings = normalize_webm_settings(settings)
         self.deleted = False
-        self.setWindowTitle(f"Local WebM Settings — {preset.name}")
+        self.setWindowTitle(f"Local WebM Settings - {preset.name}")
         self.setWindowIcon(QIcon(ICON))
         self.resize(620, 620)
 
@@ -110,7 +110,8 @@ class LocalWebMDialog(QDialog):
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
 
-        self.delete_button = buttons.addButton("Delete Local Settings", QDialogButtonBox.ButtonRole.DestructiveRole)
+        self.delete_button = buttons.addButton("Delete", QDialogButtonBox.ButtonRole.DestructiveRole)
+        self.delete_button.setStyleSheet("QPushButton { color: #f00; } QPushButton:disabled { color: #800; } ")
         self.delete_button.setEnabled((self.folder / LOCAL_WEBM_FILE).exists())
         self.delete_button.clicked.connect(self.delete_local)
         buttons.accepted.connect(self.accept)

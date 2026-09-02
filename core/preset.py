@@ -32,6 +32,24 @@ class Preset():
         self.sharpen_threshold = sharpen_threshold
         self.webm = normalize_webm_settings(webm or {})
 
+    @property
+    def cache_key(self):
+        return (
+            self.name,
+            self.output_folder,
+            self.suffix,
+            self.resize_mode,
+            self.resolution_width,
+            self.resolution_height,
+            self.downscale,
+            self.target_size,
+            self.max_quality,
+            self.min_quality,
+            self.sharpen_radius,
+            self.sharpen_percent,
+            self.sharpen_threshold,
+        )
+
     def to_dict(self):
         return {
             "name": self.name,

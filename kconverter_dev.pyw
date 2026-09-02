@@ -3,6 +3,6 @@ import config
 config.DEVELOPER = True
 
 if __name__ == '__main__':
-    import kconverter
+    import main
 
-    kconverter.main()
+    main.main()

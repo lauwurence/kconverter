@@ -282,8 +282,8 @@ class ImageConverter():
         max_workers = max(2, int((os.cpu_count() or 1) * 0.925))
         indexed_files = list(enumerate(all_files, 1))
         pending_indexes = {index for index, _ in indexed_files}
-        for index, source in indexed_files:
 
+        for index, source in indexed_files:
 
             if self.stop_event.is_set():
                 break
@@ -311,12 +311,15 @@ class ImageConverter():
             data = files[source]
 
             while len(workers) >= max_workers:
+
                 for worker in workers[:]:
                     if not worker.is_alive():
                         worker.join()
                         workers.remove(worker)
+
                 if len(workers) >= max_workers:
                     self.stop_event.wait(0.01)
+
             worker = Thread(target=self.convert_file, args=(source, data, index))
             worker.start()
             workers.append(worker)

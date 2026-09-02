@@ -11,7 +11,7 @@ from .image import ImageConverter
 from .webm import WebMConverter
 
 
-class ConversionThread(QThread):
+class ConversionWorker(QThread):
 
     message = pyqtSignal(str)
     error = pyqtSignal(str)
@@ -21,6 +21,8 @@ class ConversionThread(QThread):
 
     def __init__(self, jobs):
         super().__init__()
+
+        self.setObjectName("ConversionWorker")
         self.jobs = jobs
         self.stop_event = Event()
         self.progress_done = 0
@@ -34,10 +36,13 @@ class ConversionThread(QThread):
 
 
     def add_progress(self, done, total):
+
         with self.progress_lock:
             previous_total = self.progress_total
+
             if total > 0 and previous_total < self.progress_total + total:
                 pass
+
             self.progress_done += done
             elapsed = max(0.001, time() - self.progress_start)
             speed = self.progress_done / elapsed
@@ -45,6 +50,7 @@ class ConversionThread(QThread):
             eta = remaining / speed if speed > 0 else 0
             current_done = self.progress_done
             current_total = self.progress_total
+
         self.progress.emit(current_done, current_total, eta)
 
 
@@ -72,38 +78,33 @@ class ConversionThread(QThread):
             self.progress_start = time()
             self.progress.emit(0, max(1, self.progress_total), 0)
 
-            for index, job in enumerate(
-                self.jobs,
-                1,
-            ):
+            for index, job in enumerate(self.jobs, 1,):
+
                 if self.stop_event.is_set():
                     break
 
                 settings, preset, folder, local_settings = job
 
-                changed_folders.add(
-                    str(
-                        Path(folder).resolve()
-                    )
-                )
+                changed_folders.add(str(Path(folder).resolve()))
 
                 self.message.emit(f"[{index}/{total_jobs}] {settings.mode} | {preset.name} | {folder}")
+
                 if settings.mode == "Images":
                     converter = ImageConverter(
                         folder,
                         preset,
                         self.stop_event,
                         self.add_progress,
-                        source_root=settings.source_folder,
-                    )
+                        source_root=settings.source_folder)
+
                 else:
                     converter = WebMConverter(
                         folder,
                         preset,
                         local_settings,
                         self.stop_event,
-                        self.add_progress,
-                    )
+                        self.add_progress)
+
                 converter.log = self.message.emit
 
                 try:
@@ -120,5 +121,6 @@ class ConversionThread(QThread):
 
         except Exception as exc:
             self.error.emit(str(exc))
+
         finally:
             self.finished_signal.emit(changed_folders)
