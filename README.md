@@ -1,3 +1,4 @@
 Image and Movie converter.
 
-<img width="3067" height="1629" alt="image" src="https://github.com/user-attachments/assets/99229d05-8c60-4947-86b2-08a0161290b2" />
+<img width="2804" height="1762" alt="image" src="https://github.com/user-attachments/assets/a75afe4c-3204-4f6a-bfc9-7e54c40e8da9" />
+
