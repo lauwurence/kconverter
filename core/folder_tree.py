@@ -20,9 +20,10 @@ class FolderTree(QTreeWidget):
         self.setColumnCount(2)
         self.setHeaderLabels(["Folder / File", "Status"])
         self.setIconSize(QSize(THUMBNAIL_SIZE, THUMBNAIL_SIZE))
-        self.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-        self.setColumnWidth(1, 700)
+        self.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.setColumnWidth(0, 600)
+        # self.setColumnWidth(1, 700)
 
 
     def dragEnterEvent(self, event):

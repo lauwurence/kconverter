@@ -740,7 +740,8 @@ class MainWindow(QMainWindow):
                 button.setFixedHeight(30)
 
             if settings.mode == "Images" and preset.output_folder:
-                if self.folder_has_outdated_images(settings, preset, folder):
+
+                if outdated:
                     button.setStyleSheet("""
                         QPushButton {
                             color: #ff9800;
@@ -762,6 +763,12 @@ class MainWindow(QMainWindow):
 
             if settings.mode == "Images":
 
+                outdated = self.folder_has_outdated_images(
+                    settings,
+                    preset,
+                    folder,
+                )
+
                 if not root:
                     open_button = QToolButton()
                     open_button.setIcon(QIcon("icons/folder.svg"))
@@ -779,12 +786,24 @@ class MainWindow(QMainWindow):
                     folder,
                 )
 
-                size_label = QLabel(textutils.format_size(folder_size))
-                size_label.setFixedWidth(75)
-                size_label.setStyleSheet(
-                    "QLabel { color: #888; }"
+                size_label = QLabel(
+                    textutils.format_size(folder_size)
                 )
-                size_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+                size_label.setFixedWidth(75)
+                size_label.setAlignment(
+                    Qt.AlignmentFlag.AlignCenter
+                )
+
+                if outdated:
+                    size_label.setStyleSheet(
+                        "QLabel { color: #ff9800; }"
+                    )
+                else:
+                    size_label.setStyleSheet(
+                        "QLabel { color: #888; }"
+                    )
+
                 layout.addWidget(size_label)
 
             else:
@@ -1035,7 +1054,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(160)
 
         for preset in settings.presets:
-            output, status = self.get_file_status(source, preset)
+            output, status, outdated = self.get_file_status(source, preset)
 
             button = QPushButton(status)
             button.setFixedHeight(25)
@@ -1046,7 +1065,7 @@ class MainWindow(QMainWindow):
                 button.setIcon(QIcon("icons/open_image.svg"))
                 button.setToolTip(f"Open converted image: {preset.name}\n{output}")
 
-                if status == "Outdated":
+                if outdated:
                     button.setStyleSheet("""
                         QPushButton {
                             color: #ff9800;
@@ -1100,15 +1119,15 @@ class MainWindow(QMainWindow):
         if settings.mode != "Images":
             return False
 
-        if not preset.output_folder.strip():
-            return False
-
         folder = Path(folder).resolve()
 
         effective_preset = self.get_local_image_preset(
             folder,
             preset,
         )
+
+        if not effective_preset.output_folder.strip():
+            return False
 
         signature = self._image_folder_signature(folder)
 
@@ -1129,16 +1148,13 @@ class MainWindow(QMainWindow):
         ):
             return cached["outdated"]
 
-        effective_preset = self.get_local_image_preset(
-            folder,
-            preset,
-        )
-
         converter = ImageConverter(
             settings.source_folder,
             effective_preset,
             source_root=settings.source_folder,
         )
+
+        converter.cache = converter.read_cache()
 
         outdated = False
 
@@ -1153,11 +1169,30 @@ class MainWindow(QMainWindow):
             try:
                 output = converter.get_output_file(source)
 
+                # Нет результата
                 if not output.exists():
                     outdated = True
                     break
 
                 source_stat = source.stat()
+
+                relative_file = source.relative_to(
+                    converter.source_root
+                ).as_posix()
+
+                expected_cache = (
+                    int(source_stat.st_mtime),
+                    effective_preset.cache_key,
+                )
+
+                actual_cache = converter.cache.get(relative_file)
+
+                # Настройки пресета изменились
+                if actual_cache != expected_cache:
+                    outdated = True
+                    break
+
+                # Дополнительная проверка времени
                 output_stat = output.stat()
 
                 if output_stat.st_mtime_ns < source_stat.st_mtime_ns:
@@ -1302,10 +1337,27 @@ class MainWindow(QMainWindow):
 
     def get_file_status(self, source, preset):
         source = Path(source).resolve()
-        output = self.get_output_file(source, preset)
 
-        if output is None:
-            return None, ""
+        settings = self.find_settings_for_path(source)
+
+        if settings is None:
+            return None, "", False
+
+        effective_preset = self.get_local_image_preset(
+            source.parent,
+            preset,
+        )
+
+        if not effective_preset.output_folder.strip():
+            return None, "", False
+
+        converter = ImageConverter(
+            settings.source_folder,
+            effective_preset,
+            source_root=settings.source_folder,
+        )
+
+        output = converter.get_output_file(source)
 
         try:
             source_stat = source.stat()
@@ -1316,9 +1368,12 @@ class MainWindow(QMainWindow):
                 output_stat = None
 
         except OSError:
-            return output, "Unknown"
+            return output, "", False
 
-        key = (str(source), preset.cache_key)
+        key = (
+            str(source),
+            effective_preset.cache_key,
+        )
 
         signature = (
             source_stat.st_mtime_ns,
@@ -1333,24 +1388,54 @@ class MainWindow(QMainWindow):
 
         cached = self._file_status_cache.get(key)
 
-        if cached is not None and cached["signature"] == signature:
-            return output, cached["status"]
+        if (
+            cached is not None
+            and cached["signature"] == signature
+        ):
+            return (
+                output,
+                cached["size"],
+                cached["outdated"],
+            )
 
         if output_stat is None:
-            status = "-"
 
-        elif output_stat.st_mtime_ns < source_stat.st_mtime_ns:
-            status = "Outdated"
+            size = "-"
+            outdated = True
 
         else:
-            status = textutils.format_size(output_stat.st_size)
+
+            converter.cache = converter.read_cache()
+
+            relative_file = source.relative_to(
+                converter.source_root
+            ).as_posix()
+
+            expected_cache = (
+                int(source_stat.st_mtime),
+                effective_preset.cache_key,
+            )
+
+            actual_cache = converter.cache.get(
+                relative_file
+            )
+
+            outdated = (
+                actual_cache != expected_cache
+                or output_stat.st_mtime_ns < source_stat.st_mtime_ns
+            )
+
+            size = textutils.format_size(
+                output_stat.st_size
+            )
 
         self._file_status_cache[key] = {
             "signature": signature,
-            "status": status,
+            "size": size,
+            "outdated": outdated,
         }
 
-        return output, status
+        return output, size, outdated
 
 
     def _invalidate_file_status_cache(self, folder):

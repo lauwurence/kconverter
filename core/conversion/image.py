@@ -164,19 +164,10 @@ class ImageConverter():
 
                 cache_settings = (
                     mod_time,
-                    self.resize_mode,
-                    self.resolution_width,
-                    self.resolution_height,
-                    self.downscale,
-                    self.sharpen_radius,
-                    self.sharpen_percent,
-                    self.sharpen_threshold,
+                    self.preset.cache_key,
                 )
 
-                if (
-                    output_file.exists()
-                    and self.cache.get(relative_file) == cache_settings
-                ):
+                if output_file.exists() and self.cache.get(relative_file) == cache_settings:
                     continue
 
                 files[file] = {
@@ -257,7 +248,11 @@ class ImageConverter():
                 "success": True,
                 "error": None,
             }
-            self.cache[relative_file] = (mod_time, self.resize_mode, self.resolution_width, self.resolution_height, self.downscale, self.sharpen_radius, self.sharpen_percent, self.sharpen_threshold)
+
+            self.cache[relative_file] = (
+                mod_time,
+                self.preset.cache_key,
+            )
 
         except Exception as exc:
             result = {"index": index, "source": source, "output": output, "width": 0, "height": 0, "quality": 0, "size": 0, "source_size": 0, "success": False, "error": str(exc)}
