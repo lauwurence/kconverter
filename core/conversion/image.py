@@ -11,7 +11,7 @@ from pathlib import Path
 from datetime import datetime
 from PIL import Image, ImageFilter
 
-from config import PROFILE_SRGB
+from config import PROFILE_SRGB, CACHE_DIR
 
 
 class ImageConverter():
@@ -41,7 +41,7 @@ class ImageConverter():
         self.sharpen_threshold = preset.sharpen_threshold
         self.output = self.resolve_output()
         self.suffix = preset.suffix
-        self.cache_file = self.output / self.CACHE_FILE
+        self.cache_file = CACHE_DIR / f'{self.CACHE_FILE}_{preset.id}'
         self.cache = {}
         self.output_files = set()
         self.saved_images = 0

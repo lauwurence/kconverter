@@ -2,3 +2,4 @@
 persistent
 /.thumbnails
 *.pyc
+/.cache

@@ -23,6 +23,7 @@ WEBM_CACHE_FILE = ".cache"
 
 THUMBNAIL_DIR = LOCAL_DIR / ".thumbnails"
 SAVES_DIR = LOCAL_DIR / "saves"
+CACHE_DIR = LOCAL_DIR / ".cache"
 PERSISTENT_FILE = SAVES_DIR / "persistent"
 
 PROFILE_SRGB = ImageCms.ImageCmsProfile(ImageCms.createProfile('sRGB')).tobytes()

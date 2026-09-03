@@ -27,7 +27,7 @@ from core.preset import Preset, PresetDialog
 from core.utils import pathutils, textutils
 
 from config import (
-    VERSION, SAVES_DIR,
+    VERSION, SAVES_DIR, CACHE_DIR,
     PERSISTENT_FILE, PROJECT_EXTENSION,
     LOCAL_WEBM_FILE, LOCAL_IMAGE_FILE,
     ROOT_ROW_HEIGHT,
@@ -79,6 +79,7 @@ class MainWindow(QMainWindow):
 
         # Ensure saves directory
         SAVES_DIR.mkdir(parents=True, exist_ok=True)
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
         # Build UI
         self.setWindowTitle("kConverter")
@@ -719,14 +720,8 @@ class MainWindow(QMainWindow):
             button.setProperty("conversion_button", True)
             button.setProperty("conversion_original_text", preset.name)
             button.setProperty("conversion_preset", preset.cache_key)
-            button.setProperty(
-                "conversion_folder",
-                str(Path(folder).resolve())
-            )
-            button.setProperty(
-                "conversion_configured",
-                bool(preset.output_folder.strip())
-            )
+            button.setProperty("conversion_folder", str(Path(folder).resolve()))
+            button.setProperty("conversion_configured", bool(preset.output_folder.strip()))
             button.setToolTip(f'Convert this folder using "{preset.name}"')
             button.setFixedHeight(25)
             button.setFixedWidth(75)
@@ -738,6 +733,9 @@ class MainWindow(QMainWindow):
                     button.setFixedWidth(75 + 30 + 30)
 
                 button.setFixedHeight(30)
+
+            if settings.mode == "Images":
+                outdated = self.folder_has_outdated_images(settings, preset, folder)
 
             if settings.mode == "Images" and preset.output_folder:
 
@@ -762,12 +760,6 @@ class MainWindow(QMainWindow):
             layout.addWidget(button)
 
             if settings.mode == "Images":
-
-                outdated = self.folder_has_outdated_images(
-                    settings,
-                    preset,
-                    folder,
-                )
 
                 if not root:
                     open_button = QToolButton()
@@ -1054,7 +1046,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(160)
 
         for preset in settings.presets:
-            output, status, outdated = self.get_file_status(source, preset)
+            output, status, outdated = self.get_file_status(source, settings, preset)
 
             button = QPushButton(status)
             button.setFixedHeight(25)
@@ -1335,10 +1327,8 @@ class MainWindow(QMainWindow):
         ).get_output_file(source)
 
 
-    def get_file_status(self, source, preset):
+    def get_file_status(self, source, settings, preset):
         source = Path(source).resolve()
-
-        settings = self.find_settings_for_path(source)
 
         if settings is None:
             return None, "", False
@@ -1388,10 +1378,7 @@ class MainWindow(QMainWindow):
 
         cached = self._file_status_cache.get(key)
 
-        if (
-            cached is not None
-            and cached["signature"] == signature
-        ):
+        if cached is not None and cached["signature"] == signature:
             return (
                 output,
                 cached["size"],
@@ -1399,7 +1386,6 @@ class MainWindow(QMainWindow):
             )
 
         if output_stat is None:
-
             size = "-"
             outdated = True
 
@@ -1477,18 +1463,10 @@ class MainWindow(QMainWindow):
 
         try:
             with open(path, "wb") as file:
-                pickle.dump(
-                    data,
-                    file,
-                    protocol=pickle.HIGHEST_PROTOCOL,
-                )
+                pickle.dump(data, file, protocol=pickle.HIGHEST_PROTOCOL)
 
         except Exception as exc:
-            QMessageBox.critical(
-                self,
-                "Local settings error",
-                str(exc),
-            )
+            QMessageBox.critical(self, "Local settings error", str(exc))
 
 
     def get_local_image_preset(self, folder, preset):
@@ -1536,27 +1514,6 @@ class MainWindow(QMainWindow):
         return isinstance(data.get(preset.name), dict)
 
 
-    def remove_local_image_settings(self, folder, preset):
-
-        folder = Path(folder).resolve()
-
-        data = self.read_local_image_settings(folder)
-
-        if preset.name not in data:
-            return
-
-        data.pop(preset.name, None)
-
-        self.write_local_image_settings(
-            folder,
-            data,
-        )
-
-        self.mark_dirty()
-
-        self._refresh_local_image_status(folder)
-
-
     def _refresh_local_image_status(self, folder):
         folder = Path(folder).resolve()
 
@@ -1600,19 +1557,13 @@ class MainWindow(QMainWindow):
 
         folder = Path(folder).resolve()
 
-        local_data = self.read_local_image_settings(
-            folder
-        )
+        local_data = self.read_local_image_settings(folder)
 
         # Start with the global preset.
-        effective = Preset.from_dict(
-            preset.to_dict()
-        )
+        effective = Preset.from_dict(preset.to_dict())
 
         # Apply existing local override.
-        current = local_data.get(
-            preset.name
-        )
+        current = local_data.get(preset.name)
 
         if isinstance(current, dict):
 
@@ -1622,11 +1573,7 @@ class MainWindow(QMainWindow):
                     continue
 
                 if hasattr(effective, key):
-                    setattr(
-                        effective,
-                        key,
-                        value,
-                    )
+                    setattr(effective, key, value)
 
         # Local settings always belong to the global preset.
         effective.name = preset.name
@@ -1641,14 +1588,9 @@ class MainWindow(QMainWindow):
             return
 
         if dialog.deleted:
-
-            local_data.pop(
-                preset.name,
-                None,
-            )
+            local_data.pop(preset.name, None)
 
         else:
-
             # Never change the preset identity.
             effective.name = preset.name
 
@@ -1656,10 +1598,7 @@ class MainWindow(QMainWindow):
                 effective.to_dict()
             )
 
-        self.write_local_image_settings(
-            folder,
-            local_data,
-        )
+        self.write_local_image_settings(folder, local_data)
 
         self.mark_dirty()
 

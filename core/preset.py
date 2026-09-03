@@ -13,10 +13,12 @@ from .resize import ResizeControls
 
 from .local_webm import normalize_webm_settings
 
+from random import randint
+
 
 class Preset():
 
-    def __init__(self, name="New Preset", downscale=1.0, target_size=400, max_quality=95, min_quality=50, output_folder="", suffix="", sharpen_radius=0.5, sharpen_percent=0, sharpen_threshold=3, webm=None, resize_mode="Downsample", resolution_width=0, resolution_height=0):
+    def __init__(self, name="New Preset", downscale=1.0, target_size=400, max_quality=95, min_quality=50, output_folder="", suffix="", sharpen_radius=0.5, sharpen_percent=0, sharpen_threshold=0, webm=None, resize_mode="Downsample", resolution_width=0, resolution_height=0, id=None):
         self.name = name
         self.resize_mode = resize_mode
         self.resolution_width = int(resolution_width)
@@ -31,6 +33,7 @@ class Preset():
         self.sharpen_percent = sharpen_percent
         self.sharpen_threshold = sharpen_threshold
         self.webm = normalize_webm_settings(webm or {})
+        self.id = id or randint(0, 999999999)
 
     @property
     def cache_key(self):
@@ -66,13 +69,12 @@ class Preset():
             "sharpen_percent": self.sharpen_percent,
             "sharpen_threshold": self.sharpen_threshold,
             "webm": self.webm,
+            "id": self.id,
         }
 
     @classmethod
     def from_dict(cls, data):
         resize_mode = data.get("resize_mode")
-        resolution_width = int(data.get("resolution_width", 0))
-        resolution_height = int(data.get("resolution_height", 0))
 
         if resize_mode not in {"Resolution", "Downsample"}:
             resize_mode = "Downsample"
@@ -87,11 +89,12 @@ class Preset():
             data.get("suffix", ""),
             float(data.get("sharpen_radius", 0.5)),
             int(data.get("sharpen_percent", 0)),
-            int(data.get("sharpen_threshold", 3)),
+            int(data.get("sharpen_threshold", 0)),
             data.get("webm", {}),
             resize_mode,
-            resolution_width,
-            resolution_height,
+            int(data.get("resolution_width", 0)),
+            int(data.get("resolution_height", 0)),
+            data.get("id", None),
         )
 
 class PresetDialog(QDialog):
@@ -137,6 +140,7 @@ class PresetDialog(QDialog):
         self.target_size = QSpinBox()
         self.target_size.setRange(1, 999999)
         self.target_size.setSuffix(" KB")
+        self.target_size.setSingleStep(50)
         self.target_size.setValue(self.preset.target_size)
         form.addRow("Target size:", self.target_size)
         self.max_quality = QSpinBox()
@@ -154,7 +158,7 @@ class PresetDialog(QDialog):
         self.sharpen_radius.setValue(self.preset.sharpen_radius)
         form.addRow("Sharpen radius:", self.sharpen_radius)
         self.sharpen_percent = QSpinBox()
-        self.sharpen_percent.setRange(0, 500)
+        self.sharpen_percent.setRange(0, 1000)
         self.sharpen_percent.setValue(self.preset.sharpen_percent)
         form.addRow("Sharpen percent:", self.sharpen_percent)
         self.sharpen_threshold = QSpinBox()
