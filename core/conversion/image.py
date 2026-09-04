@@ -6,9 +6,10 @@ import pickle
 import re
 from io import BytesIO
 from time import time
-from threading import Event, Thread
+from threading import Event
 from pathlib import Path
 from PIL import Image, ImageFilter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from config import PROFILE_SRGB, CACHE_DIR, IMAGE_CACHE_FILE, RESAMPLE, EXIF_DATA
 from ..utils import textutils
@@ -127,9 +128,9 @@ class ImageConverter():
     def get_output_file(self, file):
         output_name = self.get_output_name(file)
         relative_folder = file.parent.relative_to(self.source_root)
-        output = self.output / relative_folder / output_name
 
         if self.preset.panorama:
+            output = self.output / relative_folder / output_name
 
             for suffix in self.PROBABLE_SUFFIXES:
                 path = output.parent / f'{output.name}{suffix}'
@@ -137,7 +138,10 @@ class ImageConverter():
                 if path.exists():
                     return path
 
-        return output.with_suffix(".jpg")
+        else:
+            output = str(self.output / relative_folder / output_name) + ".suffix"
+
+        return Path(output).with_suffix(".jpg")
 
 
     def scan(self):
@@ -335,13 +339,16 @@ class ImageConverter():
                 # JPEG
 
                 else:
+                    low = minimum_quality
+                    high = maximum_quality
+                    best_quality = minimum_quality
 
-                    quality = maximum_quality
-
-                    while True:
+                    while low <= high:
 
                         if self.stop_event.is_set():
                             return
+
+                        quality = (low + high) // 2
 
                         output_buffer = BytesIO()
 
@@ -355,20 +362,22 @@ class ImageConverter():
                         file_size = output_buffer.tell()
                         output_buffer.close()
 
-                        if file_size <= target_size * 1024 or quality <= minimum_quality:
-                            final_quality = max(10, min(100, round(quality)))
+                        if file_size <= target_size * 1024:
+                            best_quality = quality
+                            low = quality + 1
+                        else:
+                            high = quality - 1
 
-                            converted_image.save(
-                                output,
-                                format="JPEG",
-                                quality=final_quality,
-                                icc_profile=icc_profile,
-                                exif=exif,
-                            )
+                    final_quality = max(10, min(100, best_quality))
 
-                            break
+                    converted_image.save(
+                        output,
+                        format="JPEG",
+                        quality=final_quality,
+                        icc_profile=icc_profile,
+                        exif=exif,
+                    )
 
-                        quality -= 1
 
                 # #################################################################
                 # Result
@@ -417,19 +426,26 @@ class ImageConverter():
 
 
     def run(self):
+
         start = time()
+
         self.output.mkdir(parents=True, exist_ok=True)
         self.cache = self.read_cache()
+
         files, all_files = self.scan()
 
         if self.progress_callback:
             self.progress_callback(0, self.files_total)
 
-        workers = []
-        max_workers = max(2, int((os.cpu_count() or 1) * 0.925))
-        indexed_files = list(enumerate(all_files, 1))
+        # PIL освобождает GIL на тяжёлых операциях resize/save,
+        # поэтому несколько worker'ов хорошо загружают CPU.
+        cpu_count = os.cpu_count() or 1
+        max_workers = 3#max(2, int(cpu_count * 0.925))
 
-        for index, source in indexed_files:
+        # Сначала быстро помечаем уже готовые файлы.
+        tasks = []
+
+        for index, source in enumerate(all_files, 1):
 
             if self.stop_event.is_set():
                 break
@@ -454,29 +470,57 @@ class ImageConverter():
 
                 continue
 
-            data = files[source]
+            tasks.append(
+                (
+                    index,
+                    source,
+                    files[source],
+                )
+            )
 
-            while len(workers) >= max_workers:
+        # Пул потоков вместо создания Thread на каждый файл.
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(
+                    self.convert_file,
+                    source,
+                    data,
+                    index,
+                ): index
+                for index, source, data in tasks
+            }
 
-                for worker in workers[:]:
-                    if not worker.is_alive():
-                        worker.join()
-                        workers.remove(worker)
+            # Забираем результаты по мере готовности.
+            # Это позволяет потокам непрерывно работать,
+            # не ожидая завершения предыдущих файлов.
+            for future in as_completed(futures):
+                if self.stop_event.is_set():
+                    break
 
-                if len(workers) >= max_workers:
-                    self.stop_event.wait(0.01)
+                index = futures[future]
 
-            worker = Thread(target=self.convert_file, args=(source, data, index))
-            worker.start()
-            workers.append(worker)
+                try:
+                    future.result()
+                except Exception as exc:
+                    source = all_files[index - 1]
 
-        for worker in workers:
-            worker.join()
+                    self.completed_results[index] = {
+                        "index": index,
+                        "source": source,
+                        "output": self.get_output_file(source),
+                        "width": 0,
+                        "height": 0,
+                        "quality": 0,
+                        "size": 0,
+                        "source_size": 0,
+                        "success": False,
+                        "error": str(exc),
+                    }
 
         self.write_cache()
 
+        # Выводим результаты в исходном порядке.
         for index in range(1, len(all_files) + 1):
-
             if self.stop_event.is_set():
                 break
 
@@ -487,7 +531,10 @@ class ImageConverter():
 
             if result.get("cached"):
                 output = result["output"]
-                self.log(f"{index}/{self.files_total}: {output} | cached")
+                self.log(
+                    f"{index}/{self.files_total}: "
+                    f"{output} | cached"
+                )
                 continue
 
             if result["success"]:
@@ -495,9 +542,20 @@ class ImageConverter():
                 self.source_sizes.append(result["source_size"])
                 self.saved_sizes.append(result["size"])
                 self.saved_qualities.append(result["quality"])
-                self.log(f"{index}/{self.files_total}: {result['output']} | {result['width']}x{result['height']} | {result['quality']:.0f}% | {textutils.format_size(result['size'])}")
+
+                self.log(
+                    f"{index}/{self.files_total}: "
+                    f"{result['output']} | "
+                    f"{result['width']}x{result['height']} | "
+                    f"{result['quality']:.0f}% | "
+                    f"{textutils.format_size(result['size'])}"
+                )
             else:
-                self.log(f"{index}/{self.files_total}: ERROR: {result['source']} | {result['error']}")
+                self.log(
+                    f"{index}/{self.files_total}: "
+                    f"ERROR: {result['source']} | "
+                    f"{result['error']}"
+                )
 
         self.log(f"Images converted: {self.saved_images}")
         self.log(f"Finished in {time() - start:.1f} sec")
