@@ -8,6 +8,10 @@ from threading import Event
 from pathlib import Path
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from collections import deque
+from time import monotonic
+from threading import Event, Lock
+
 from .image import ImageConverter
 from .webm import WebMConverter
 
@@ -26,33 +30,62 @@ class ConversionWorker(QThread):
         self.setObjectName("ConversionWorker")
         self.jobs = jobs
         self.stop_event = Event()
+
         self.progress_done = 0
         self.progress_total = 0
-        self.progress_start = time()
-        self.progress_lock = __import__("threading").Lock()
+        self.progress_start = monotonic()
+        self.progress_lock = Lock()
 
+        # Последние измерения: (timestamp, completed)
+        self.progress_samples = deque(maxlen=30)
+
+        self.eta = 0.0
 
     def stop(self):
         self.stop_event.set()
 
 
     def add_progress(self, done, total):
-
         with self.progress_lock:
-            previous_total = self.progress_total
-
-            if total > 0 and previous_total < self.progress_total + total:
-                pass
-
             self.progress_done += done
-            elapsed = max(0.001, time() - self.progress_start)
-            speed = self.progress_done / elapsed
-            remaining = max(0, self.progress_total - self.progress_done)
-            eta = remaining / speed if speed > 0 else 0
+
+            now = monotonic()
             current_done = self.progress_done
             current_total = self.progress_total
 
-        self.progress.emit(current_done, current_total, eta)
+            self.progress_samples.append((now, current_done))
+
+            # Недостаточно данных для адекватной оценки.
+            if len(self.progress_samples) < 2:
+                eta = 0.0
+
+            else:
+                old_time, old_done = self.progress_samples[0]
+                dt = now - old_time
+                dd = current_done - old_done
+
+                if dt <= 0 or dd <= 0:
+                    eta = self.eta
+                else:
+                    # Скорость только за последнее окно.
+                    speed = dd / dt
+
+                    remaining = max(0, current_total - current_done)
+                    new_eta = remaining / speed
+
+                    # Сглаживание ETA.
+                    if self.eta <= 0:
+                        eta = new_eta
+                    else:
+                        eta = self.eta * 0.7 + new_eta * 0.3
+
+                    self.eta = eta
+
+            self.progress.emit(
+                current_done,
+                current_total,
+                max(0.0, eta),
+            )
 
 
     def run(self):
