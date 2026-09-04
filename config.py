@@ -3,6 +3,7 @@
 
 from pathlib import Path
 from PIL import Image, ImageCms
+from datetime import datetime
 
 DEVELOPER = False
 
@@ -20,11 +21,14 @@ PROJECT_EXTENSION = ".kcp"
 LOCAL_WEBM_FILE = ".settings"
 LOCAL_IMAGE_FILE = ".settings"
 WEBM_CACHE_FILE = ".cache"
+IMAGE_CACHE_FILE = ".cache"
 
 THUMBNAIL_DIR = LOCAL_DIR / ".thumbnails"
 SAVES_DIR = LOCAL_DIR / "saves"
 CACHE_DIR = LOCAL_DIR / ".cache"
 PERSISTENT_FILE = SAVES_DIR / "persistent"
+
+EXIF_DATA = {315: "keyclap", 33432: f"Copyright {datetime.now().year} keyclap. All Rights Reserved."}
 
 PROFILE_SRGB = ImageCms.ImageCmsProfile(ImageCms.createProfile('sRGB')).tobytes()
 RESAMPLE = Image.Resampling.LANCZOS

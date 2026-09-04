@@ -13,6 +13,7 @@ from pathlib import Path
 from config import WEBM_CACHE_FILE, MINTERPOLATE
 
 from ..local_webm import normalize_webm_settings
+from ..utils import textutils
 
 
 class WebMConverter():
@@ -128,6 +129,7 @@ class WebMConverter():
         frames = []
 
         for image in images:
+
             try:
                 stat = image.stat()
             except OSError:
@@ -352,18 +354,8 @@ class WebMConverter():
 
         if output.exists():
             self.write_cache(self.get_source_signature(images))
-            self.log(f"Finished: {output} ({self.format_size(output.stat().st_size)})")
+            self.log(f"Finished: {output} ({textutils.format_size(output.stat().st_size)})")
 
         if self.progress_callback:
             self.progress_callback(1, 1)
 
-
-    def format_size(self, size):
-
-        if size < 1024 * 1024:
-            return f"{size / 1024:.0f} KB"
-
-        if size < 1024 * 1024 * 1024:
-            return f"{size / 1024 / 1024:.1f} MB"
-
-        return f"{size / 1024 / 1024 / 1024:.2f} GB"

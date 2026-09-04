@@ -3,3 +3,4 @@ persistent
 /.thumbnails
 *.pyc
 /.cache
+*.log

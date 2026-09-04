@@ -1,12 +1,14 @@
 ################################################################################
 ## Preset
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
     QDialog, QDialogButtonBox, QFormLayout, QLineEdit,
     QMessageBox, QSpinBox, QDoubleSpinBox, QCheckBox
 )
+from PyQt6.QtWidgets import QSizePolicy
 
 from config import ICON
 from .resize import ResizeControls
@@ -18,7 +20,7 @@ from random import randint
 
 class Preset():
 
-    def __init__(self, name="New Preset", downscale=1.0, target_size=400, max_quality=95, min_quality=50, output_folder="", suffix="", sharpen_radius=0.5, sharpen_percent=0, sharpen_threshold=0, webm=None, resize_mode="Downsample", resolution_width=0, resolution_height=0, id=None):
+    def __init__(self, name="New Preset", downscale=1.0, target_size=400, max_quality=95, min_quality=50, output_folder="", suffix="", sharpen_radius=0.5, sharpen_percent=0, sharpen_threshold=0, webm=None, resize_mode="Downsample", resolution_width=0, resolution_height=0, id=None, panorama=False, enabled_overrides=None):
         self.name = name
         self.resize_mode = resize_mode
         self.resolution_width = int(resolution_width)
@@ -34,6 +36,8 @@ class Preset():
         self.sharpen_threshold = sharpen_threshold
         self.webm = normalize_webm_settings(webm or {})
         self.id = id or randint(0, 999999999)
+        self.panorama = panorama
+        self.enabled_overrides = set(enabled_overrides or [])
 
     @property
     def cache_key(self):
@@ -70,6 +74,8 @@ class Preset():
             "sharpen_threshold": self.sharpen_threshold,
             "webm": self.webm,
             "id": self.id,
+            "panorama": self.panorama,
+            "enabled_overrides": sorted(self.enabled_overrides),
         }
 
     @classmethod
@@ -95,136 +101,366 @@ class Preset():
             int(data.get("resolution_width", 0)),
             int(data.get("resolution_height", 0)),
             data.get("id", None),
+            data.get("panorama", False),
+            enabled_overrides=data.get("enabled_overrides", []),
         )
 
 class PresetDialog(QDialog):
 
-    def __init__(self, preset, mode, parent=None):
+    def __init__(
+        self,
+        preset,
+        mode,
+        parent=None,
+        local_override=False,
+        enabled_overrides=None,
+    ):
         super().__init__(parent)
+
+        self.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, False)
+
+        # Не перерисовывать окно во время построения интерфейса.
+        self.setUpdatesEnabled(False)
+
         self.preset = preset
         self.mode = mode
+        self.local_override = local_override
+        self.enabled_overrides = set(
+            enabled_overrides
+            if enabled_overrides is not None
+            else preset.enabled_overrides
+        )
+        self._local_checks = {}
+
         self.setWindowTitle("Preset Settings")
         self.setWindowIcon(QIcon(ICON))
         self.resize(600, 0)
+
         layout = QVBoxLayout(self)
         form = QFormLayout()
+
         self.name_edit = QLineEdit(preset.name)
         form.addRow("Name:", self.name_edit)
+
         output_layout = QHBoxLayout()
+
         self.output_edit = QLineEdit(preset.output_folder)
         output_button = QPushButton("Choose")
         output_button.clicked.connect(self.choose_output)
+
         output_layout.addWidget(self.output_edit)
         output_layout.addWidget(output_button)
+
+        if self.local_override:
+            self.output_check = QCheckBox()
+            self.output_check.setChecked("output_folder" in self.enabled_overrides)
+            self.output_check.setToolTip(
+                "Override the global Output folder for this folder."
+            )
+            output_layout.addWidget(self.output_check)
+            self._local_checks["output_folder"] = self.output_check
+
         form.addRow("Output folder:", output_layout)
+
+        suffix_layout = QHBoxLayout()
+
         self.suffix_edit = QLineEdit(preset.suffix)
         self.suffix_edit.setPlaceholderText("Example: @2")
-        form.addRow("File suffix:", self.suffix_edit)
+        suffix_layout.addWidget(self.suffix_edit)
+
+        if self.local_override:
+            self.suffix_check = QCheckBox()
+            self.suffix_check.setChecked("suffix" in self.enabled_overrides)
+            self.suffix_check.setToolTip(
+                "Override the global File suffix for this folder."
+            )
+            suffix_layout.addWidget(self.suffix_check)
+            self._local_checks["suffix"] = self.suffix_check
+
+        form.addRow("File suffix:", suffix_layout)
+
         if mode == "Images":
-            self.add_images_settings(form)
+            self.add_image_settings(form)
         else:
             self.add_webm_settings(form)
+
         layout.addLayout(form)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+
         layout.addWidget(buttons)
+
+        self.adjustSize()
+        self.setUpdatesEnabled(True)
+
+    def _add_local_field(self, form, label, widget, key):
+        if not self.local_override:
+            form.addRow(label, widget)
+            return
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+
+        row.addWidget(widget)
+        widget.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed
+        )
+
+        check = QCheckBox()
+        check.setChecked(key in self.enabled_overrides)
+
+        check.setToolTip(
+            f"Override the global '{label}' setting for this folder."
+        )
+
+        row.addWidget(check)
+
+        self._local_checks[key] = check
+
+        form.addRow(label, row)
+
+    def _add_local_resize_field(self, form, label, widget, key):
+        """
+        Same as _add_local_field(), kept separate so ResizeControls
+        can later expose its individual controls if needed.
+        """
+
+        self._add_local_field(form, label, widget, key)
+
+    def get_local_overrides(self):
+        result = {}
+
+        if not self.local_override:
+            return result
+
+        if self.output_check.isChecked():
+            result["output_folder"] = self.output_edit.text().strip()
+
+        if self.suffix_check.isChecked():
+            result["suffix"] = self.suffix_edit.text()
+
+        if self._local_checks['target_size'].isChecked():
+            result["target_size"] = self.target_size.value()
+
+        if self._local_checks['max_quality'].isChecked():
+            result["max_quality"] = self.max_quality.value()
+
+        if self._local_checks['min_quality'].isChecked():
+            result["min_quality"] = self.min_quality.value()
+
+        if self._local_checks['sharpen_radius'].isChecked():
+            result["sharpen_radius"] = self.sharpen_radius.value()
+
+        if self._local_checks['sharpen_percent'].isChecked():
+            result["sharpen_percent"] = self.sharpen_percent.value()
+
+        if self._local_checks['sharpen_threshold'].isChecked():
+            result["sharpen_threshold"] = self.sharpen_threshold.value()
+
+        if self.panorama_check.isChecked():
+            result["panorama"] = self.panorama_enabled.isChecked()
+
+        result.update(self.resize_controls.get_local_overrides())
+
+        return result
 
     def choose_output(self):
         folder = QFileDialog.getExistingDirectory(self, "Choose output folder")
         if folder:
             self.output_edit.setText(folder)
 
-    def add_images_settings(self, form):
-        self.resize_controls = ResizeControls(form, self.preset.resize_mode, self.preset.resolution_width or 1920, self.preset.resolution_height or 1080, self.preset.downscale)
+    def add_image_settings(self, form):
+
+        self.resize_controls = ResizeControls(
+            form,
+            self.preset.resize_mode,
+            self.preset.resolution_width or 1920,
+            self.preset.resolution_height or 1080,
+            self.preset.downscale,
+            local_override=self.local_override,
+            enabled_overrides=self.enabled_overrides,
+        )
+
         self.target_size = QSpinBox()
         self.target_size.setRange(1, 999999)
         self.target_size.setSuffix(" KB")
         self.target_size.setSingleStep(50)
         self.target_size.setValue(self.preset.target_size)
-        form.addRow("Target size:", self.target_size)
+
+        self._add_local_field(
+            form,
+            "Target size:",
+            self.target_size,
+            "target_size",
+        )
+
         self.max_quality = QSpinBox()
         self.max_quality.setRange(1, 100)
+        self.max_quality.setSingleStep(5)
         self.max_quality.setValue(self.preset.max_quality)
-        form.addRow("Max quality:", self.max_quality)
+
+        self._add_local_field(
+            form,
+            "Max quality:",
+            self.max_quality,
+            "max_quality",
+        )
+
         self.min_quality = QSpinBox()
         self.min_quality.setRange(1, 100)
+        self.min_quality.setSingleStep(5)
         self.min_quality.setValue(self.preset.min_quality)
-        form.addRow("Min quality:", self.min_quality)
+
+        self._add_local_field(
+            form,
+            "Min quality:",
+            self.min_quality,
+            "min_quality",
+        )
+
         self.sharpen_radius = QDoubleSpinBox()
         self.sharpen_radius.setRange(0.0, 100.0)
         self.sharpen_radius.setDecimals(2)
         self.sharpen_radius.setSingleStep(0.25)
         self.sharpen_radius.setValue(self.preset.sharpen_radius)
-        form.addRow("Sharpen radius:", self.sharpen_radius)
+
+        self._add_local_field(
+            form,
+            "Sharpen radius:",
+            self.sharpen_radius,
+            "sharpen_radius",
+        )
+
         self.sharpen_percent = QSpinBox()
         self.sharpen_percent.setRange(0, 1000)
+        self.sharpen_percent.setSingleStep(10)
         self.sharpen_percent.setValue(self.preset.sharpen_percent)
-        form.addRow("Sharpen percent:", self.sharpen_percent)
+
+        self._add_local_field(
+            form,
+            "Sharpen percent:",
+            self.sharpen_percent,
+            "sharpen_percent",
+        )
+
         self.sharpen_threshold = QSpinBox()
         self.sharpen_threshold.setRange(0, 255)
+        self.sharpen_threshold.setSingleStep(1)
         self.sharpen_threshold.setValue(self.preset.sharpen_threshold)
-        form.addRow("Sharpen threshold:", self.sharpen_threshold)
+
+        self._add_local_field(
+            form,
+            "Sharpen threshold:",
+            self.sharpen_threshold,
+            "sharpen_threshold",
+        )
+
+        self.panorama_enabled = QCheckBox()
+        self.panorama_enabled.setChecked(self.preset.panorama)
+
+        if self.local_override:
+            panorama_layout = QHBoxLayout()
+            panorama_layout.setContentsMargins(0, 0, 0, 0)
+
+            panorama_layout.addWidget(self.panorama_enabled)
+
+            self.panorama_check = QCheckBox()
+            self.panorama_check.setChecked("panorama" in self.enabled_overrides)
+            self.panorama_check.setToolTip(
+                "Override the global 'Panorama' setting for this folder."
+            )
+
+            panorama_layout.addWidget(self.panorama_check)
+
+            self._local_checks["panorama"] = self.panorama_check
+
+            form.addRow("Panorama:", panorama_layout)
+        else:
+            form.addRow("Panorama:", self.panorama_enabled)
 
     def add_webm_settings(self, form):
         settings = normalize_webm_settings(self.preset.webm)
-        self.add_webm_controls(form, settings)
 
-    def add_webm_controls(self, form, settings):
         self.input_fps = QDoubleSpinBox()
         self.input_fps.setRange(0.1, 1000)
         self.input_fps.setValue(settings["input_fps"])
         form.addRow("Input FPS:", self.input_fps)
+
         self.output_fps = QDoubleSpinBox()
         self.output_fps.setRange(0.1, 1000)
         self.output_fps.setValue(settings["output_fps"])
         form.addRow("Output FPS:", self.output_fps)
+
         self.speed = QDoubleSpinBox()
         self.speed.setRange(0.01, 100)
         self.speed.setDecimals(2)
         self.speed.setValue(settings["speed"])
         form.addRow("Speed:", self.speed)
-        self.resize_controls = ResizeControls(form, settings["resize_mode"], settings["resolution_width"], settings["resolution_height"], settings["downsample"])
+
+        self.resize_controls = ResizeControls(
+            form,
+            settings["resize_mode"],
+            settings["resolution_width"],
+            settings["resolution_height"],
+            settings["downsample"])
+
         self.cpu_used = QSpinBox()
         self.cpu_used.setRange(0, 8)
         self.cpu_used.setValue(settings["cpu_used"])
         form.addRow("CPU used:", self.cpu_used)
+
         self.threads = QSpinBox()
         self.threads.setRange(0, 128)
         self.threads.setValue(settings["threads"])
         form.addRow("Threads:", self.threads)
+
         self.row_mt = QSpinBox()
         self.row_mt.setRange(0, 1)
         self.row_mt.setValue(settings["row_mt"])
         form.addRow("Row MT:", self.row_mt)
+
         self.tile_columns = QSpinBox()
         self.tile_columns.setRange(0, 6)
         self.tile_columns.setValue(settings["tile_columns"])
         form.addRow("Tile columns:", self.tile_columns)
+
         self.tile_rows = QSpinBox()
         self.tile_rows.setRange(0, 2)
         self.tile_rows.setValue(settings["tile_rows"])
         form.addRow("Tile rows:", self.tile_rows)
+
         self.crf = QSpinBox()
         self.crf.setRange(0, 63)
         self.crf.setValue(settings["crf"])
         form.addRow("CRF:", self.crf)
+
         self.image_quality = QSpinBox()
         self.image_quality.setRange(1, 100)
         self.image_quality.setValue(settings["image_quality"])
         form.addRow("Image quality:", self.image_quality)
+
         self.sharpen = QDoubleSpinBox()
         self.sharpen.setRange(0, 10)
         self.sharpen.setDecimals(2)
         self.sharpen.setValue(settings["sharpen"])
         form.addRow("Sharpen:", self.sharpen)
+
         self.interpolate = QSpinBox()
         self.interpolate.setRange(0, 6)
         self.interpolate.setValue(settings["interpolate"])
         form.addRow("Interpolation:", self.interpolate)
+
         self.loop = QCheckBox()
         self.loop.setChecked(settings["loop"])
         form.addRow("Loop:", self.loop)
+
         self.reverse = QCheckBox()
         self.reverse.setChecked(settings["reverse"])
         form.addRow("Reverse:", self.reverse)
@@ -264,6 +500,19 @@ class PresetDialog(QDialog):
         self.preset.output_folder = self.output_edit.text().strip()
         self.preset.suffix = self.suffix_edit.text()
 
+        if self.local_override:
+            self.enabled_overrides = {
+                key
+                for key, check in self._local_checks.items()
+                if check.isChecked()
+            }
+
+            self.enabled_overrides.update(
+                self.resize_controls.get_enabled_overrides()
+            )
+
+            self.preset.enabled_overrides = self.enabled_overrides
+
         if self.mode == "Images":
             resize = self.resize_controls.values()
             self.preset.resize_mode = resize["resize_mode"]
@@ -276,6 +525,7 @@ class PresetDialog(QDialog):
             self.preset.sharpen_radius = self.sharpen_radius.value()
             self.preset.sharpen_percent = self.sharpen_percent.value()
             self.preset.sharpen_threshold = self.sharpen_threshold.value()
+            self.preset.panorama = self.panorama_enabled.isChecked()
 
             if self.preset.min_quality > self.preset.max_quality:
                 QMessageBox.warning(self, "Invalid quality", "Min quality cannot be greater than Max quality.")

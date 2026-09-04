@@ -71,8 +71,7 @@ class ConversionWorker(QThread):
                         root = Path(folder)
 
                         for base, dirs, names in os.walk(root):
-                            dirs[:] = [d for d in dirs if d.lower() not in ImageConverter.IGNORE_FOLDERS]
-                            count += sum(1 for name in names if Path(name).suffix.lower() in ImageConverter.INPUT_SUFFIXES and " - " not in Path(name).stem)
+                            count += sum(1 for name in names if Path(name).suffix.lower() in ImageConverter.INPUT_SUFFIXES)
 
                     except OSError:
                         count = 0

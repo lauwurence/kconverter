@@ -15,25 +15,38 @@ from .preset import PresetDialog
 
 class LocalImageDialog(PresetDialog):
 
-    def __init__(self, folder, preset, parent=None):
-        super().__init__(preset, "Images", parent)
+    def __init__(
+        self,
+        folder,
+        preset,
+        parent=None,
+        enabled_overrides=None,
+    ):
+        enabled_overrides = set(enabled_overrides or [])
+
+        super().__init__(
+            preset,
+            "Images",
+            parent,
+            local_override=True,
+            enabled_overrides=enabled_overrides,
+        )
 
         self.folder = folder
         self.deleted = False
+
+        self.local_overrides = {}
 
         self.setWindowTitle(f"Local Image Settings - {folder.name}")
         self.resize(500, 0)
 
         # Local settings belong to an existing global preset.
-        # The preset name is used as the key in the local settings file.
         self.name_edit.setEnabled(False)
 
         self._replace_buttons()
 
     def _replace_buttons(self):
 
-        # Remove the standard "Ok / Cancel" button box
-        # created by PresetDialog.
         old_button_box = self.findChild(QDialogButtonBox)
 
         if old_button_box is not None:
@@ -71,9 +84,11 @@ class LocalImageDialog(PresetDialog):
         cancel_button.clicked.connect(self.reject)
 
     def _save(self):
+
         self.deleted = False
 
-        # Use PresetDialog's normal validation and value collection.
+        self.local_overrides = self.get_local_overrides()
+
         super().accept()
 
     def _delete(self):
@@ -81,7 +96,8 @@ class LocalImageDialog(PresetDialog):
         result = QMessageBox.question(
             self,
             "Delete Local Settings",
-            f'Delete local settings for preset "{self.preset.name}" in:\n{self.folder}?',
+            f'Delete local settings for preset "{self.preset.name}" in:\n'
+            f"{self.folder}?",
             QMessageBox.StandardButton.Yes
             | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
@@ -91,7 +107,9 @@ class LocalImageDialog(PresetDialog):
             return
 
         self.deleted = True
+        self.local_overrides = {}
 
-        # Do NOT call self.accept() here because that would invoke
-        # PresetDialog.accept() and overwrite self.preset from the controls.
+        # Do NOT call self.accept() here.
         QDialog.accept(self)
+
+

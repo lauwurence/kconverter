@@ -91,6 +91,7 @@ def normalize_webm_settings(data):
 
 class LocalWebMDialog(QDialog):
 
+
     def __init__(self, folder, preset, settings, parent=None):
         super().__init__(parent)
         self.folder = Path(folder).resolve()
@@ -116,17 +117,14 @@ class LocalWebMDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+
     def choose_output(self):
 
-        folder = QFileDialog.getExistingDirectory(
-            self,
-            "Choose output folder"
-        )
+        folder = QFileDialog.getExistingDirectory(self, "Choose output folder")
 
         if folder:
-            self.output_folder.setText(
-                str(Path(folder).resolve())
-            )
+            self.output_folder.setText(str(Path(folder).resolve()))
+
 
     def add_controls(self, form):
         s = self.settings
@@ -216,6 +214,7 @@ class LocalWebMDialog(QDialog):
         self.reverse.setChecked(s["reverse"])
         form.addRow("Reverse:", self.reverse)
 
+
     def collect(self):
         resize = self.resize_controls.values()
         result = {
@@ -242,11 +241,14 @@ class LocalWebMDialog(QDialog):
         result["resolution"] = f'{resize["resolution_width"]}x{resize["resolution_height"]}' if resize["resize_mode"] == "Resolution" else "Original"
         return result
 
+
     def delete_local(self):
         result = QMessageBox.question(self, "Delete local settings", f'Delete local WebM settings for "{self.preset.name}" in:\n{self.folder}?')
+
         if result == QMessageBox.StandardButton.Yes:
             self.deleted = True
             self.accept()
+
 
     def accept(self):
 

@@ -9,7 +9,10 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 
 def _scan_directory(folder):
-    """Scan one directory using scandir (faster than iterdir/stat per entry)."""
+    """
+    Scan one directory using scandir (faster than iterdir/stat per entry).
+    """
+
     folder = Path(folder).resolve()
 
     entries = []
@@ -17,9 +20,8 @@ def _scan_directory(folder):
 
     try:
         with os.scandir(folder) as it:
+
             for entry in it:
-                if entry.name.lower() == "backup":
-                    continue
 
                 try:
                     is_dir = entry.is_dir(follow_symlinks=False)
@@ -53,12 +55,6 @@ def _scan_directory(folder):
     return str(folder), tuple(entries), child_dirs
 
 
-def directory_signature(folder):
-    """Return a signature for one directory."""
-    _, signature, _ = _scan_directory(folder)
-    return signature
-
-
 class RescanWorker(QThread):
 
     result_ready = pyqtSignal(object, object, object)
@@ -79,6 +75,7 @@ class RescanWorker(QThread):
 
         self.max_workers = default_workers
 
+
     def _scan_roots(self, roots):
         """
         Recursively scan directories in parallel.
@@ -87,21 +84,15 @@ class RescanWorker(QThread):
         those are then submitted to the pool. This avoids doing the whole
         os.walk traversal in a single thread.
         """
+
         snapshots = {}
         watched = set()
         pending = set()
         scheduled = set()
 
-        roots = {
-            Path(root).resolve()
-            for root in roots
-            if Path(root).is_dir()
-        }
+        roots = { Path(root).resolve() for root in roots if Path(root).is_dir() }
 
-        with ThreadPoolExecutor(
-            max_workers=self.max_workers,
-            thread_name_prefix="Rescan",
-        ) as executor:
+        with ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="Rescan") as executor:
 
             for root in roots:
                 root_str = str(root)
@@ -142,15 +133,13 @@ class RescanWorker(QThread):
                         if child_str in scheduled:
                             continue
 
-                        future_arg = executor.submit(
-                            _scan_directory,
-                            child,
-                        )
+                        future_arg = executor.submit(_scan_directory, child)
                         future_arg._rescan_path = child_str
                         pending.add(future_arg)
                         scheduled.add(child_str)
 
         return watched, snapshots
+
 
     def build_snapshots(self):
         if self.mode == "incremental":
@@ -166,15 +155,13 @@ class RescanWorker(QThread):
 
             return self._scan_roots(roots)
 
-        roots = [
-            Path(settings.source_folder).resolve()
-            for settings in self.folders
-            if Path(settings.source_folder).is_dir()
-        ]
+        roots = [ Path(settings.source_folder).resolve() for settings in self.folders if Path(settings.source_folder).is_dir() ]
 
         return self._scan_roots(roots)
 
+
     def run(self):
+
         try:
             watched, snapshots = self.build_snapshots()
 
@@ -192,6 +179,7 @@ class RescanWorker(QThread):
 
         except Exception as exc:
             self.error.emit(str(exc))
+
 
     def stop(self):
         self.stop_event.set()
