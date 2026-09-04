@@ -7,8 +7,11 @@ import hashlib
 import subprocess
 import ffmpeg
 
+from datetime import datetime
 from threading import Event
 from pathlib import Path
+
+from PIL import Image, ImageCms, ImageEnhance
 
 from config import WEBM_CACHE_FILE, MINTERPOLATE
 
@@ -19,6 +22,17 @@ from ..utils import textutils
 class WebMConverter():
 
     IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+
+    PROFILE_SRGB = ImageCms.ImageCmsProfile(
+        ImageCms.createProfile("sRGB")
+    ).tobytes()
+
+    PREVIEW_QUALITY = 95
+
+    EXIF_DATA = {
+        (315,): "keyclap",
+        (33432,): f"Copyright {datetime.now().year} keyclap. All Rights Reserved.",
+    }
 
 
     def __init__(self, folder, preset, local_settings=None, stop_event=None, progress_callback=None):
@@ -65,6 +79,10 @@ class WebMConverter():
 
     def get_output_file(self):
         return self.output_folder / f"{self.folder.name}{self.preset.suffix}.webm"
+
+
+    def get_preview_file(self):
+        return self.output_folder / f"{self.folder.name}{self.preset.suffix}.jpg"
 
 
     def get_cache_file(self):
@@ -163,15 +181,20 @@ class WebMConverter():
 
     def needs_conversion(self, images):
         output = self.get_output_file()
+        preview = self.get_preview_file()
 
         if not output.exists():
             return True, "output does not exist"
+
+        if not preview.exists():
+            return True, "preview does not exist"
 
         cache = self.read_cache()
         signature = self.get_source_signature(images)
 
         if cache.get("signature") != signature:
             return True, "frames or settings changed"
+
         try:
             if output.stat().st_size <= 0:
                 return True, "output file is empty"
@@ -179,7 +202,65 @@ class WebMConverter():
         except OSError:
             return True, "output file cannot be read"
 
+        try:
+            if preview.stat().st_size <= 0:
+                return True, "preview file is empty"
+
+        except OSError:
+            return True, "preview file cannot be read"
+
         return False, "nothing changed"
+
+
+    def save_preview(self, image, output_file):
+        """
+        Save first WebM frame as JPEG preview.
+        """
+
+        output_file.unlink(missing_ok=True)
+
+        resolution = self.resolution()
+        sharpen = float(self.settings["sharpen"])
+
+        with Image.open(image) as img:
+
+            if resolution is None:
+                width = img.width
+                height = img.height
+            else:
+                width, height = resolution
+
+            if sharpen:
+                enhancer = ImageEnhance.Sharpness(img)
+                img = enhancer.enhance(sharpen * 10)
+
+            img.thumbnail(
+                (width, height),
+                resample=Image.Resampling.LANCZOS,
+            )
+
+            icc_profile = img.info.get(
+                "icc_profile",
+                self.PROFILE_SRGB,
+            )
+
+            exif = img.getexif()
+
+            for (index,), value in self.EXIF_DATA.items():
+                exif[index] = value
+
+            rgb_img = img.convert("RGB")
+
+            rgb_img.save(
+                output_file,
+                format="JPEG",
+                quality=self.PREVIEW_QUALITY,
+                compression="jpeg",
+                icc_profile=icc_profile,
+                exif=exif,
+            )
+
+        self.log(f"Preview saved: {output_file}")
 
 
     def create_concat_file(self, images):
@@ -227,24 +308,43 @@ class WebMConverter():
         resolution = self.resolution()
 
         if resolution:
-            filters.append(f"scale={resolution[0]}:{resolution[1]}:flags=lanczos:param0=4")
+            filters.append(
+                f"scale={resolution[0]}:{resolution[1]}:"
+                f"flags=lanczos:param0=4"
+            )
 
         elif settings["resize_mode"] == "Downsample" and float(settings["downsample"]) != 1.0:
             downsample = float(settings["downsample"])
-            filters.append(f"scale=iw/{downsample:g}:ih/{downsample:g}:flags=lanczos:param0=4")
+            filters.append(
+                f"scale=iw/{downsample:g}:"
+                f"ih/{downsample:g}:"
+                f"flags=lanczos:param0=4"
+            )
 
         # Sharpen
         sharpen = float(settings["sharpen"])
 
         if sharpen:
-            filters.append(f"unsharp=luma_msize_x=3:luma_msize_y=3:luma_amount={sharpen}")
+            filters.append(
+                f"unsharp="
+                f"luma_msize_x=3:"
+                f"luma_msize_y=3:"
+                f"luma_amount={sharpen}"
+            )
 
         return filters
 
 
     def run_process(self, command):
 
-        self.process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+        self.process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
 
         while True:
 
@@ -268,7 +368,9 @@ class WebMConverter():
                 break
 
         if self.process.returncode != 0:
-            raise RuntimeError(f"FFmpeg exited with code {self.process.returncode}")
+            raise RuntimeError(
+                f"FFmpeg exited with code {self.process.returncode}"
+            )
 
         self.process = None
 
@@ -282,16 +384,21 @@ class WebMConverter():
 
             if self.progress_callback:
                 self.progress_callback(1, 1)
+
             return
 
         if self.progress_callback:
             self.progress_callback(0, 1)
 
         self.output_folder.mkdir(parents=True, exist_ok=True)
+
         should_convert, reason = self.needs_conversion(images)
 
         if not should_convert:
-            self.log(f"WebM skipped: {self.folder.name} (frames and settings unchanged)")
+            self.log(
+                f"WebM skipped: {self.folder.name} "
+                f"(frames and settings unchanged)"
+            )
 
             if self.progress_callback:
                 self.progress_callback(1, 1)
@@ -299,15 +406,59 @@ class WebMConverter():
             return
 
         self.log(f"WebM conversion required: {reason}")
+
         settings = self.settings
+
+        # -------------------------------------------------------------------------
+        # Preview
+        #
+        # Determine the first frame of the resulting WebM BEFORE reversing
+        # the image list.
+        #
+        # Normal:
+        #     001 -> 002 -> 003
+        #     preview = 001
+        #
+        # Reverse:
+        #     003 -> 002 -> 001
+        #     preview = 003
+        # -------------------------------------------------------------------------
+
+        preview_frame = images[-1] if settings["reverse"] else images[0]
+        preview = self.get_preview_file()
+
+        # Save preview BEFORE WebM conversion.
+        self.save_preview(
+            preview_frame,
+            preview,
+        )
+
+        # -------------------------------------------------------------------------
+        # Reverse
+        # -------------------------------------------------------------------------
 
         if settings["reverse"]:
             images.reverse()
 
+        # -------------------------------------------------------------------------
+        # Concat
+        # -------------------------------------------------------------------------
+
         concat_file = self.create_concat_file(images)
+
         output = self.get_output_file()
         filters = self.build_filters()
-        input_stream = ffmpeg.input(str(concat_file), format="concat", safe=0)
+
+        input_stream = ffmpeg.input(
+            str(concat_file),
+            format="concat",
+            safe=0,
+        )
+
+        # -------------------------------------------------------------------------
+        # FFmpeg parameters
+        # -------------------------------------------------------------------------
+
         params = {
             "c:v": settings["codec"],
             "pix_fmt": settings["pix_fmt"],
@@ -334,28 +485,73 @@ class WebMConverter():
         if settings["loop"]:
             params["loop"] = 0
 
-        command = ffmpeg.compile(input_stream.output(str(output), **params), overwrite_output=True)
+        # -------------------------------------------------------------------------
+        # Build command
+        # -------------------------------------------------------------------------
+
+        command = ffmpeg.compile(
+            input_stream.output(
+                str(output),
+                **params
+            ),
+            overwrite_output=True,
+        )
+
+        # -------------------------------------------------------------------------
+        # Log
+        # -------------------------------------------------------------------------
+
         self.log(f"WebM: {self.folder.name}")
         self.log(f"Output: {output}")
+        self.log(f"Preview: {preview}")
         self.log(f"Frames: {len(images)}")
 
         if settings["resize_mode"] == "Resolution":
-            self.log(f"Resolution: {settings['resolution_width']}x{settings['resolution_height']}")
+            self.log(
+                f"Resolution: "
+                f"{settings['resolution_width']}x"
+                f"{settings['resolution_height']}"
+            )
         else:
-            self.log(f"Downsample: {settings['downsample']}x")
+            self.log(
+                f"Downsample: {settings['downsample']}x"
+            )
 
-        self.log(f"FPS: {settings['input_fps']} -> {settings['output_fps']}")
+        self.log(
+            f"FPS: {settings['input_fps']} -> "
+            f"{settings['output_fps']}"
+        )
+
         self.log(f"CRF: {settings['crf']}")
+
+        # -------------------------------------------------------------------------
+        # Convert WebM
+        # -------------------------------------------------------------------------
 
         try:
             self.run_process(command)
+
         finally:
             concat_file.unlink(missing_ok=True)
 
+        # -------------------------------------------------------------------------
+        # Save cache
+        # -------------------------------------------------------------------------
+
         if output.exists():
-            self.write_cache(self.get_source_signature(images))
-            self.log(f"Finished: {output} ({textutils.format_size(output.stat().st_size)})")
+
+            self.write_cache(
+                self.get_source_signature(images)
+            )
+
+            self.log(
+                f"Finished: {output} "
+                f"({textutils.format_size(output.stat().st_size)})"
+            )
+
+        # -------------------------------------------------------------------------
+        # Progress
+        # -------------------------------------------------------------------------
 
         if self.progress_callback:
             self.progress_callback(1, 1)
-
