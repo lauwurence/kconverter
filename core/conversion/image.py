@@ -111,9 +111,13 @@ class ImageConverter():
                 f"{converted_name}_"
                 f"{file_number:02d}_"
                 f"{file_subnumber:03d}"
+                if self.preset.panorama
+                else
+                f"{converted_name}_"
+                f"{file_number:02d}_"
+                f"{file_subnumber:03d}"
                 f"{self.suffix}"
             )
-
         else:
             output_name = f"{file.stem}{self.suffix}"
 
@@ -157,7 +161,7 @@ class ImageConverter():
                 if not file.is_file() or file.suffix.lower() not in self.INPUT_SUFFIXES:
                     continue
 
-                output_name = self.get_output_name(file)
+                output_name = self.get_output_name(file) + ".suffix"
 
                 all_files.append(file)
 
@@ -308,16 +312,14 @@ class ImageConverter():
 
                 output = output.with_suffix(".jpg" if output_format == "JPEG" else ".webp")
 
-                if output_suffix:
-                    output = output.with_stem(output.stem + output_suffix)
+                # if output_suffix:
+                #     output = output.with_stem(output.stem + output_suffix)
 
                 # #################################################################
                 # WebP
 
                 if output_format == "WEBP":
                     quality = 90
-
-                    print(output)
 
                     converted_image.save(
                         output,
