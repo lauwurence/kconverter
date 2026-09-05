@@ -838,11 +838,7 @@ class MainWindow(QMainWindow):
             button.setFixedWidth(75)
 
             if root:
-                button.setFixedWidth(75 + 31)
-
-                if settings.mode == "Images" or settings.mode == "Audio":
-                    button.setFixedWidth(75 + 30 + 30)
-
+                button.setFixedWidth(75 + 30 + 30)
                 button.setFixedHeight(30)
 
             if settings.mode == "Images":
@@ -916,31 +912,93 @@ class MainWindow(QMainWindow):
                 layout.addWidget(size_label)
 
             else:
-                local = self.get_local_preset(folder, preset)
+
+                if not root:
+                    open_button = QToolButton()
+                    open_button.setIcon(QIcon("icons/folder.svg"))
+                    open_button.setToolTip("Open converted movies folder")
+                    open_button.setFixedWidth(25)
+                    open_button.setFixedHeight(25)
+
+                    open_button.clicked.connect(lambda checked=False, s=settings, p=preset, f=Path(folder): self.open_conversion_result(s, p, f))
+                    open_button.setEnabled(bool(preset.output_folder))
+                    layout.addWidget(open_button)
+
+                # -------------------------------------------------------------------------
+                # WebM output size
+                # -------------------------------------------------------------------------
+
                 webm_output = None
+                webm_size = 0
 
                 if preset.output_folder.strip():
-                    webm_output = WebMConverter(folder, preset, local, source_root=settings.source_folder).get_output_file()
 
-                if webm_output is not None and webm_output.is_file():
-                    webm_size = webm_output.stat().st_size
+                    # If this folder itself contains images and has no child folders,
+                    # this will return exactly one WebM file.
+                    webm_folders = self.get_webm_folders(Path(folder))
 
-                    webm_button = QPushButton(textutils.format_size(webm_size))
+                    for webm_folder in webm_folders:
+
+                        local = self.get_local_preset(webm_folder, preset)
+
+                        converter = WebMConverter(
+                            webm_folder,
+                            preset,
+                            local,
+                            source_root=settings.source_folder,
+                        )
+
+                        output = converter.get_output_file()
+
+                        try:
+                            if output.is_file():
+                                webm_size += output.stat().st_size
+
+                                # Keep the actual output path when there is only
+                                # one WebM in this folder.
+                                if len(webm_folders) == 1:
+                                    webm_output = output
+
+                        except OSError:
+                            continue
+
+                # -------------------------------------------------------------------------
+                # WebM button
+                # -------------------------------------------------------------------------
+
+                if webm_output is not None and webm_output.is_file() and len(webm_folders) == 1:
+
+                    webm_button = QPushButton(
+                        textutils.format_size(webm_size)
+                    )
+
                     if not webm_size:
-                        webm_button.setIcon(QIcon("icons/webm_play_error.svg"))
+                        webm_button.setIcon(
+                            QIcon("icons/webm_play_error.svg")
+                        )
                     else:
-                        webm_button.setIcon(QIcon("icons/webm_play.svg"))
+                        webm_button.setIcon(
+                            QIcon("icons/webm_play.svg")
+                        )
 
-                    webm_button.setFixedHeight(25)
+                    webm_button.setFixedHeight(25 if not root else 30)
                     webm_button.setFixedWidth(75)
-                    webm_button.setToolTip(f"Open WebM animation\n{webm_output}")
+
+                    webm_button.setToolTip(
+                        f"Open WebM animation\n{webm_output}"
+                    )
 
                     webm_button.clicked.connect(
-                        lambda checked=False, s=settings, p=preset, f=Path(folder):
+                        lambda checked=False,
+                            s=settings,
+                            p=preset,
+                            f=Path(folder):
                             self.open_conversion_result(s, p, f)
                     )
 
-                    webm_button.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                    webm_button.setContextMenuPolicy(
+                        Qt.ContextMenuPolicy.CustomContextMenu
+                    )
 
                     webm_button.customContextMenuRequested.connect(
                         lambda pos,
@@ -955,14 +1013,19 @@ class MainWindow(QMainWindow):
                             )
                     )
 
-                else:
-                    webm_button = QPushButton(textutils.format_size(0))
+                elif webm_size > 0:
+                    webm_button = QLabel(textutils.format_size(webm_size))
                     webm_button.setFixedHeight(25 if not root else 30)
                     webm_button.setFixedWidth(75)
-                    webm_button.setEnabled(False)
-                    webm_button.setFlat(True)
-                    webm_button.setStyleSheet("QPushButton:disabled { color: #888; }")
-                    webm_button.setToolTip("WebM file does not exist yet")
+                    webm_button.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+
+                else:
+                    webm_button = QLabel("-")
+                    webm_button.setFixedHeight(25 if not root else 30)
+                    webm_button.setFixedWidth(75)
+                    webm_button.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                    webm_button.setStyleSheet("QLabel { color: #888; }")
 
                 layout.addWidget(webm_button)
 
@@ -1256,7 +1319,6 @@ class MainWindow(QMainWindow):
 
 
     def show_output_context_menu(self, button, path, refresh_callback=None):
-
         path = Path(path).resolve()
 
         if not path.exists():
@@ -2197,12 +2259,8 @@ class MainWindow(QMainWindow):
 
             if output.exists():
                 self.open_file(output)
-            else:
-                QMessageBox.information(
-                    self,
-                    "WebM not found",
-                    f"WebM file does not exist yet:\n{output}"
-                )
+            elif output.parent.exists():
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(output.parent)))
 
 
     def start_thumbnail_worker(self, folder=None):

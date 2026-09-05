@@ -95,7 +95,7 @@ class WebMConverter():
 
         output_folder = self.output_folder / relative.parent
 
-        return output_folder / f"{self.folder.name}{self.preset.suffix}.webm"
+        return output_folder / f"{self.folder.name}" / f"{self.preset.suffix}.webm"
 
 
     def get_preview_file(self):
@@ -106,7 +106,7 @@ class WebMConverter():
 
         output_folder = self.output_folder / relative.parent
 
-        return output_folder / f"{self.folder.name}{self.preset.suffix}.jpg"
+        return output_folder / f"{self.folder.name}" / f"{self.preset.suffix}.jpg"
 
 
     def get_cache_file(self):
