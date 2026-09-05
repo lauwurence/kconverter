@@ -2869,8 +2869,8 @@ class MainWindow(QMainWindow):
 
         if self.taskbar_progress is not None:
             self.taskbar_progress.set_progress(
-                done + 1,
-                total + 1,
+                done,
+                total
             )
 
     def stop_conversion(self):

@@ -212,6 +212,10 @@ class TaskbarProgress:
             self.clear()
             return
 
+        if done <= 0:
+            total = 100
+            done = 6
+
         done = max(0, min(done, total))
 
         self.set_progress_state(self.TBPF_NORMAL)
