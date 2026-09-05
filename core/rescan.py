@@ -2,6 +2,7 @@
 ## Rescan
 
 import os
+
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from pathlib import Path
 from threading import Event
@@ -38,6 +39,7 @@ def _scan_directory(folder):
                         child_dirs.append(Path(entry.path).resolve())
 
                 except OSError:
+
                     try:
                         is_dir = entry.is_dir(follow_symlinks=False)
                     except OSError:
@@ -66,9 +68,7 @@ class RescanWorker(QThread):
         self.setObjectName("RescanWorker")
         self.folders = folders
         self.mode = mode
-        self.changed_paths = {
-            str(Path(p).resolve()) for p in (changed_paths or [])
-        }
+        self.changed_paths = { str(Path(p).resolve()) for p in (changed_paths or []) }
         self.stop_event = Event()
 
         default_workers = int(os.cpu_count() * 0.8) or 4
@@ -97,27 +97,28 @@ class RescanWorker(QThread):
             for root in roots:
                 root_str = str(root)
                 future = executor.submit(_scan_directory, root)
-                future._rescan_path = root_str
                 pending.add(future)
                 scheduled.add(root_str)
 
             while pending:
+
                 if self.stop_event.is_set():
+
                     for future in pending:
                         future.cancel()
+
                     return watched, snapshots
 
-                done, pending = wait(
-                    pending,
-                    return_when=FIRST_COMPLETED,
-                )
+                done, pending = wait(pending, return_when=FIRST_COMPLETED)
 
                 for future in done:
+
                     if self.stop_event.is_set():
                         break
 
                     try:
                         path, signature, child_dirs = future.result()
+
                     except Exception:
                         continue
 
@@ -134,7 +135,6 @@ class RescanWorker(QThread):
                             continue
 
                         future_arg = executor.submit(_scan_directory, child)
-                        future_arg._rescan_path = child_str
                         pending.add(future_arg)
                         scheduled.add(child_str)
 

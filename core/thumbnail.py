@@ -2,7 +2,6 @@
 ## Thumbnail Worker
 
 import hashlib
-import os
 
 from pathlib import Path
 from threading import Event, Lock
@@ -27,23 +26,17 @@ class _ThumbnailTask(QRunnable):
 
     @pyqtSlot()
     def run(self):
+
         if self.worker.stop_event.is_set():
             self.worker.task_finished()
             return
 
         try:
-            cache_path = self.worker.create_thumbnail(
-                self.source_path
-            )
+            cache_path = self.worker.create_thumbnail(self.source_path)
 
-            if (
-                cache_path
-                and not self.worker.stop_event.is_set()
-            ):
-                self.worker.thumbnail_ready.emit(
-                    self.item_path,
-                    str(cache_path),
-                )
+            if cache_path and not self.worker.stop_event.is_set():
+                self.worker.thumbnail_ready.emit(self.item_path, str(cache_path))
+
         finally:
             self.worker.task_finished()
 
@@ -79,9 +72,7 @@ class ThumbnailWorker(QObject):
         # THUMBNAIL_WORKERS=6
         worker_count = 8
 
-        self.pool.setMaxThreadCount(
-            max(1, worker_count)
-        )
+        self.pool.setMaxThreadCount(max(1, worker_count))
 
         self._remaining = 0
         self._remaining_lock = Lock()
@@ -106,10 +97,7 @@ class ThumbnailWorker(QObject):
 
         # SHA1 is unnecessary here. A short BLAKE2 hash is faster and
         # collision probability is still negligible for this cache.
-        digest = hashlib.blake2b(
-            key,
-            digest_size=10,
-        ).hexdigest()
+        digest = hashlib.blake2b(key, digest_size=10,).hexdigest()
 
         return THUMBNAIL_DIR / f"{digest}.png"
 
@@ -172,10 +160,7 @@ class ThumbnailWorker(QObject):
                 if self.stop_event.is_set():
                     return None
 
-                cache.parent.mkdir(
-                    parents=True,
-                    exist_ok=True,
-                )
+                cache.parent.mkdir(parents=True, exist_ok=True)
 
                 # PNG optimization is CPU-heavy and unnecessary for
                 # thumbnails. Low compression is intentionally used here.
@@ -196,45 +181,31 @@ class ThumbnailWorker(QObject):
         Submit thumbnail jobs to QThreadPool.
         """
 
-        THUMBNAIL_DIR.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
+        THUMBNAIL_DIR.mkdir(parents=True, exist_ok=True)
 
         # If several tree items use the same source image, decode it once.
         unique = {}
 
         for item_path, source_path in self.items:
+
             try:
-                source_key = str(
-                    Path(source_path).resolve()
-                )
+                source_key = str(Path(source_path).resolve())
             except Exception:
                 source_key = str(source_path)
 
             unique.setdefault(
                 source_key,
                 []
-            ).append(
-                (
-                    str(item_path),
-                    source_path,
-                )
-            )
+            ).append((str(item_path), source_path))
 
         jobs = []
 
         for entries in unique.values():
             # One source may belong to multiple tree items.
             # The cache prevents duplicate actual image generation.
+
             for item_path, source_path in entries:
-                jobs.append(
-                    _ThumbnailTask(
-                        self,
-                        item_path,
-                        source_path,
-                    )
-                )
+                jobs.append(_ThumbnailTask(self, item_path, source_path))
 
         self._remaining = len(jobs)
 

@@ -140,7 +140,6 @@ class LocalWebMDialog(QDialog):
 
         self.suffix = QLineEdit()
         self.suffix.setText(s.get("suffix", self.preset.suffix))
-        self.suffix.setPlaceholderText("Example: @2")
         form.addRow("File suffix:", self.suffix)
 
         self.input_fps = QDoubleSpinBox()

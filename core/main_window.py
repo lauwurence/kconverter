@@ -24,24 +24,12 @@ from core.thumbnail import ThumbnailWorker
 from core.rescan import RescanWorker
 from core.folder_tree import FolderTree
 from core.preset import Preset
-from core.utils import textutils
+from core.utils import textutils, pathutils, setutils
 
 from config import (
-    VERSION, SAVES_DIR, CACHE_DIR,
-    PERSISTENT_FILE, PROJECT_EXTENSION,
-    LOCAL_WEBM_FILE, LOCAL_IMAGE_FILE,
-    ROOT_ROW_HEIGHT,
-    FOLDER_ROW_HEIGHT,
-    ICON,
+    VERSION, SAVES_DIR, CACHE_DIR, PROJECT_EXTENSION, ROOT_ROW_HEIGHT,
+    FOLDER_ROW_HEIGHT, ICON,
 )
-
-def iter_png_files(folder):
-    try:
-        for path in Path(folder).resolve().rglob("*"):
-            if path.is_file() and path.suffix.lower() == ".png":
-                yield path
-    except OSError:
-        return
 
 
 def folder_cache_key(folder, preset):
@@ -64,7 +52,6 @@ class MainWindow(QMainWindow):
         # Проект изменился?
         self.project_is_dirty = False
 
-        #
         self.items_by_path = {}
         self.settings_by_item = {}
         self._file_status_cache = {}
@@ -171,12 +158,7 @@ class MainWindow(QMainWindow):
         entries = []
 
         try:
-            for source in folder.rglob("*"):
-                if not source.is_file():
-                    continue
-
-                if source.suffix.lower() != ".png":
-                    continue
+            for source in pathutils.iter_files(folder, suffix=".png"):
 
                 try:
                     stat = source.stat()
@@ -1066,13 +1048,7 @@ class MainWindow(QMainWindow):
 
         outdated = False
 
-        for source in iter_png_files(folder):
-
-            if not source.is_file():
-                continue
-
-            if source.suffix.lower() != ".png":
-                continue
+        for source in pathutils.iter_files(folder, suffix=".png"):
 
             try:
                 output = converter.get_output_file(source)
@@ -1084,9 +1060,7 @@ class MainWindow(QMainWindow):
 
                 source_stat = source.stat()
 
-                relative_file = source.relative_to(
-                    converter.source_root
-                ).as_posix()
+                relative_file = source.relative_to(converter.source_root).as_posix()
 
                 expected_cache = (
                     int(source_stat.st_mtime),
@@ -1151,10 +1125,7 @@ class MainWindow(QMainWindow):
         total = 0
 
         try:
-            for source in iter_png_files(folder):
-
-                if not source.is_file():
-                    continue
+            for source in pathutils.iter_files(folder, suffix=".png"):
 
                 try:
                     output = converter.get_output_file(source)
@@ -1315,44 +1286,13 @@ class MainWindow(QMainWindow):
                 pass
 
 
-    def read_local_image_settings(self, folder):
-        path = Path(folder).resolve() / LOCAL_IMAGE_FILE
-
-        try:
-            with open(path, "rb") as file:
-                data = pickle.load(file)
-
-            if isinstance(data, dict):
-                return data
-
-        except Exception:
-            pass
-
-        return {}
-
-
-    def write_local_image_settings(self, folder, data):
-        path = Path(folder).resolve() / LOCAL_IMAGE_FILE
-
-        if not data:
-            path.unlink(missing_ok=True)
-            return
-
-        try:
-            with open(path, "wb") as file:
-                pickle.dump(data, file, protocol=pickle.HIGHEST_PROTOCOL)
-
-        except Exception as exc:
-            QMessageBox.critical(self, "Local settings error", str(exc))
-
-
     def get_local_image_preset(self, folder, preset):
 
         if not preset:
             return None
 
         folder = Path(folder).resolve()
-        data = self.read_local_image_settings(folder)
+        data = setutils.read_local_image_settings(folder)
 
         current = data.get(preset.name)
 
@@ -1361,20 +1301,11 @@ class MainWindow(QMainWindow):
 
         try:
             local_preset = Preset.from_dict(preset.to_dict())
-
-            enabled = set(
-                current.get(
-                    "enabled_overrides",
-                    getattr(preset, "enabled_overrides", set())
-                )
-            )
+            enabled = set(current.get("enabled_overrides", getattr(preset, "enabled_overrides", set())))
 
             for key, value in current.items():
 
-                if key in {
-                    "name",
-                    "enabled_overrides",
-                }:
+                if key in ["name", "enabled_overrides"]:
                     continue
 
                 if key not in enabled:
@@ -1392,7 +1323,7 @@ class MainWindow(QMainWindow):
 
 
     def has_local_image_settings(self, folder, preset):
-        data = self.read_local_image_settings(folder)
+        data = setutils.read_local_image_settings(folder)
         return isinstance(data.get(preset.name), dict)
 
 
@@ -1439,7 +1370,7 @@ class MainWindow(QMainWindow):
 
         folder = Path(folder).resolve()
 
-        local_data = self.read_local_image_settings(folder)
+        local_data = setutils.read_local_image_settings(folder)
 
         # Start with the global preset.
         effective = Preset.from_dict(preset.to_dict())
@@ -1481,54 +1412,18 @@ class MainWindow(QMainWindow):
                 effective.to_dict()
             )
 
-        self.write_local_image_settings(folder, local_data)
+        try:
+            setutils.write_local_image_settings(folder, local_data)
+        except Exception as exc:
+            QMessageBox.critical(self, "Local settings error", str(exc))
 
         self.mark_dirty()
 
         self._refresh_local_image_status(folder)
 
 
-    def read_local_webm_settings(self, folder):
-        path = Path(folder).resolve() / LOCAL_WEBM_FILE
-
-        try:
-            with open(path, "rb") as file:
-                data = pickle.load(file)
-
-            if isinstance(data, dict):
-                return data
-
-        except Exception:
-            pass
-
-        return {}
-
-
-    def write_local_webm_settings(self, folder, data):
-        path = Path(folder).resolve() / LOCAL_WEBM_FILE
-
-        if not data:
-            path.unlink(missing_ok=True)
-            return
-
-        try:
-            with open(path, "wb") as file:
-                pickle.dump(
-                    data,
-                    file,
-                    protocol=pickle.HIGHEST_PROTOCOL,
-                )
-
-        except Exception as exc:
-            QMessageBox.critical(
-                self,
-                "Local settings error",
-                str(exc),
-            )
-
-
     def get_local_preset(self, folder, preset):
-        data = self.read_local_webm_settings(folder)
+        data = setutils.read_local_webm_settings(folder)
         return data.get(preset.name)
 
 
@@ -1537,7 +1432,7 @@ class MainWindow(QMainWindow):
         if settings.mode != "WebM":
             return
 
-        local_data = self.read_local_webm_settings(folder)
+        local_data = setutils.read_local_webm_settings(folder)
         current = local_data.get(preset.name)
         base = normalize_webm_settings(preset.webm)
 
@@ -1555,7 +1450,11 @@ class MainWindow(QMainWindow):
         else:
             local_data[preset.name] = dialog.settings
 
-        self.write_local_webm_settings(folder, local_data)
+        try:
+            setutils.write_local_webm_settings(folder, local_data)
+        except Exception as exc:
+            QMessageBox.critical(self, "Local settings error", str(exc))
+
         self.mark_dirty()
 
         self._refresh_local_webm_status(folder)
@@ -1654,11 +1553,7 @@ class MainWindow(QMainWindow):
                 entries = []
 
             for path in entries:
-                if (
-                    path.is_file()
-                    and path.suffix.lower()
-                    in WebMConverter.IMAGE_EXTENSIONS
-                ):
+                if path.is_file() and path.suffix.lower() in WebMConverter.IMAGE_EXTENSIONS:
                     paths.append((str(path.resolve()), path))
 
             if item is not None:
@@ -1676,9 +1571,7 @@ class MainWindow(QMainWindow):
                 )
 
                 for child_folder in child_folders:
-                    child_item = self.items_by_path.get(
-                        str(child_folder.resolve())
-                    )
+                    child_item = self.items_by_path.get(str(child_folder.resolve()))
 
                     if child_item is None:
                         continue
@@ -1688,21 +1581,13 @@ class MainWindow(QMainWindow):
                     )
 
                     if child_source:
-                        paths.append(
-                            (
-                                str(child_folder.resolve()),
-                                child_source,
-                            )
-                        )
+                        paths.append((str(child_folder.resolve()), child_source))
 
         else:
             for path in self.items_by_path:
                 item_path = Path(path)
 
-                if (
-                    item_path.suffix.lower()
-                    in WebMConverter.IMAGE_EXTENSIONS
-                ):
+                if item_path.suffix.lower() in WebMConverter.IMAGE_EXTENSIONS:
                     paths.append((path, item_path))
                     continue
 
@@ -1725,9 +1610,7 @@ class MainWindow(QMainWindow):
         self.thumbnail_worker = worker
 
         worker.thumbnail_ready.connect(self.thumbnail_ready)
-        worker.finished.connect(
-            lambda worker=worker: self.thumbnail_finished(worker)
-        )
+        worker.finished.connect(lambda worker=worker: self.thumbnail_finished(worker))
 
         worker.start()
 
@@ -1847,9 +1730,7 @@ class MainWindow(QMainWindow):
         self.rescan_button.setEnabled(False)
 
         if mode == "incremental":
-            self.log_message(
-                f"Rescan started for {len(changed_paths)} converted folder(s)..."
-            )
+            self.log_message(f"Rescan started for {len(changed_paths)} converted folder(s)...")
         else:
             self.log_message("Rescan started...")
 
@@ -2154,11 +2035,7 @@ class MainWindow(QMainWindow):
             folders = self.get_webm_folders(Path(folder))
 
             for folder in folders:
-
-                effective_preset = self.get_local_image_preset(
-                    folder,
-                    preset,
-                )
+                effective_preset = self.get_local_image_preset(folder, preset)
 
                 self.enqueue_conversion((
                     settings,
@@ -2169,10 +2046,7 @@ class MainWindow(QMainWindow):
         else:
             folder = Path(folder).resolve()
 
-            effective_preset = self.get_local_image_preset(
-                folder,
-                preset,
-            )
+            effective_preset = self.get_local_image_preset(folder, preset)
 
             self.enqueue_conversion((
                 settings,
@@ -2194,30 +2068,14 @@ class MainWindow(QMainWindow):
                 continue
 
             if settings.mode == "WebM":
-
                 job_preset = preset
-                local = self.get_local_preset(
-                    folder,
-                    preset,
-                )
+                local = self.get_local_preset(folder, preset)
 
             else:
-
-                job_preset = self.get_local_image_preset(
-                    folder,
-                    preset,
-                )
-
+                job_preset = self.get_local_image_preset(folder, preset)
                 local = None
 
-            jobs.append(
-                (
-                    settings,
-                    job_preset,
-                    folder,
-                    local,
-                )
-            )
+            jobs.append((settings, job_preset, folder, local))
 
         if not jobs:
             QMessageBox.information(
@@ -2243,42 +2101,22 @@ class MainWindow(QMainWindow):
                     continue
 
                 if settings.mode == "WebM":
-                    folders = self.get_webm_folders(
-                        Path(settings.source_folder)
-                    )
+                    folders = self.get_webm_folders(Path(settings.source_folder))
                 else:
-                    folders = [Path(settings.source_folder)]
+                    folders = [ Path(settings.source_folder) ]
 
                 for folder in folders:
-
                     folder = Path(folder).resolve()
 
                     if settings.mode == "WebM":
-
                         job_preset = preset
-
-                        local = self.get_local_preset(
-                            folder,
-                            preset,
-                        )
+                        local = self.get_local_preset(folder, preset)
 
                     else:
-
-                        job_preset = self.get_local_image_preset(
-                            folder,
-                            preset,
-                        )
-
+                        job_preset = self.get_local_image_preset(folder, preset)
                         local = None
 
-                    jobs.append(
-                        (
-                            settings,
-                            job_preset,
-                            folder,
-                            local,
-                        )
-                    )
+                    jobs.append((settings, job_preset, folder, local))
 
         if not jobs:
             QMessageBox.information(
@@ -2302,10 +2140,7 @@ class MainWindow(QMainWindow):
             except OSError:
                 return
 
-            child_folders = [
-                entry for entry in entries
-                if entry.is_dir()
-            ]
+            child_folders = [ entry for entry in entries if entry.is_dir() ]
 
             has_images = any(
                 entry.is_file()
@@ -2319,10 +2154,7 @@ class MainWindow(QMainWindow):
                 folders.append(folder)
                 return
 
-            for child in sorted(
-                child_folders,
-                key=lambda p: p.name.lower()
-            ):
+            for child in sorted(child_folders, key=lambda p: p.name.lower()):
                 scan(child)
 
         scan(root)
@@ -2461,8 +2293,8 @@ class MainWindow(QMainWindow):
             with open(path, "wb") as file:
                 pickle.dump(self.get_project_data(), file, protocol=pickle.HIGHEST_PROTOCOL)
 
+            setutils.write_last_project(path)
             self.project_filename = str(path)
-            self.write_last_project(path)
             self.mark_clean()
             self.log_message(f"Project saved: {path}")
 
@@ -2500,8 +2332,8 @@ class MainWindow(QMainWindow):
                 if settings.source_folder:
                     self.folders.append(settings)
 
+            setutils.write_last_project(path)
             self.project_filename = str(path)
-            self.write_last_project(path)
             self.mark_clean()
             self.rescan()
             self.log_message(f"Project loaded: {path}")
@@ -2510,32 +2342,8 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Load error", str(exc))
 
 
-    def write_last_project(self, filename):
-
-        try:
-            SAVES_DIR.mkdir(parents=True, exist_ok=True)
-            data = {"last_project": str(Path(filename).resolve())}
-
-            with open(PERSISTENT_FILE, "wb") as file:
-                pickle.dump(data, file, protocol=pickle.HIGHEST_PROTOCOL)
-
-        except Exception:
-            pass
-
-
     def load_last_project(self):
-        filename = None
-
-        if PERSISTENT_FILE.exists():
-            try:
-                with open(PERSISTENT_FILE, "rb") as file:
-                    data = pickle.load(file)
-
-                if isinstance(data, dict):
-                    filename = data.get("last_project")
-
-            except Exception:
-                filename = None
+        filename = setutils.read_last_project()
 
         if filename:
             path = Path(filename)

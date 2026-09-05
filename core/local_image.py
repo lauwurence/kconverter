@@ -98,8 +98,7 @@ class LocalImageDialog(PresetDialog):
             "Delete Local Settings",
             f'Delete local settings for preset "{self.preset.name}" in:\n'
             f"{self.folder}?",
-            QMessageBox.StandardButton.Yes
-            | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
 
