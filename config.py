@@ -7,7 +7,7 @@ from datetime import datetime
 
 DEVELOPER = False
 
-VERSION = (0, 2)
+VERSION = (0, 3)
 ICON = "icons/icon.svg"
 APPID = f'kconverter.{".".join([str(v) for v in VERSION])}'.lower()
 

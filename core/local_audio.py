@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.conversion.audio import SUPPORTED_BITRATES
+from core.folder import SettingsDialog
 
 SETTINGS_FILENAME = ".kconverter_audio_local.json"
 
@@ -39,13 +40,33 @@ def write_local_audio_settings(folder, data):
     tmp.replace(path)
 
 
+class AudioAwareSettingsDialog(SettingsDialog):
+    """Adds Audio to the existing mode selector without changing the legacy dialog."""
+
+    def __init__(self, *args, **kwargs):
+        self._audio_mode_settings = args[0] if args else kwargs.get("settings")
+        super().__init__(*args, **kwargs)
+        self._install_audio_mode()
+
+    def _install_audio_mode(self):
+        combos = self.findChildren(QComboBox)
+        for combo in combos:
+            values = [combo.itemText(i) for i in range(combo.count())]
+            if "Images" in values or "WebM" in values:
+                if "Audio" not in values:
+                    combo.addItem("Audio")
+                current_mode = getattr(self._audio_mode_settings, "mode", None)
+                if current_mode == "Audio":
+                    combo.setCurrentText("Audio")
+                return
+
 class LocalAudioDialog(QDialog):
     def __init__(self, folder, preset_name, bitrate=128, parent=None):
         super().__init__(parent)
         self.folder = Path(folder).resolve()
         self.preset_name = preset_name
         self.deleted = False
-        self.setWindowTitle(f"Local Audio settings — {preset_name}")
+        self.setWindowTitle(f"Local Audio Settings - {preset_name}")
         self.setMinimumWidth(320)
 
         layout = QVBoxLayout(self)
@@ -63,7 +84,9 @@ class LocalAudioDialog(QDialog):
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel
         )
-        reset = buttons.addButton("Remove local override", QDialogButtonBox.ButtonRole.DestructiveRole)
+        reset = buttons.addButton("Delete", QDialogButtonBox.ButtonRole.DestructiveRole)
+        reset.setStyleSheet("QPushButton { color: #f00; } QPushButton:disabled { color: #800; } ")
+        # reset.setEnabled(_settings_path(self.folder).exists())
         reset.clicked.connect(self.remove_override)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)

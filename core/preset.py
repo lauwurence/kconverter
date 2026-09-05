@@ -6,7 +6,7 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog,
     QDialog, QDialogButtonBox, QFormLayout, QLineEdit,
-    QMessageBox, QSpinBox, QDoubleSpinBox, QCheckBox
+    QMessageBox, QSpinBox, QDoubleSpinBox, QCheckBox, QComboBox
 )
 from PyQt6.QtWidgets import QSizePolicy
 
@@ -20,7 +20,7 @@ from random import randint
 
 class Preset():
 
-    def __init__(self, name="New Preset", downscale=1.0, target_size=400, max_quality=95, min_quality=50, output_folder="", suffix="", sharpen_radius=0.5, sharpen_percent=0, sharpen_threshold=0, webm=None, resize_mode="Downsample", resolution_width=0, resolution_height=0, id=None, panorama=False, webp=False, webp_method=4, enabled_overrides=None):
+    def __init__(self, name="New Preset", downscale=1.0, target_size=400, max_quality=95, min_quality=50, output_folder="", suffix="", sharpen_radius=0.5, sharpen_percent=0, sharpen_threshold=0, webm=None, resize_mode="Downsample", resolution_width=0, resolution_height=0, id=None, panorama=False, webp=False, webp_method=4, enabled_overrides=None, bitrate=128):
         self.name = name
         self.resize_mode = resize_mode
         self.resolution_width = int(resolution_width)
@@ -39,6 +39,7 @@ class Preset():
         self.panorama = panorama
         self.webp = webp
         self.webp_method = webp_method
+        self.bitrate = int(bitrate)
         self.enabled_overrides = set(enabled_overrides or [])
 
     @property
@@ -60,6 +61,7 @@ class Preset():
             self.panorama,
             self.webp,
             self.webp_method,
+            self.bitrate,
         )
 
     def to_dict(self):
@@ -82,6 +84,7 @@ class Preset():
             "panorama": self.panorama,
             "webp": self.webp,
             "webp_method": self.webp_method,
+            "bitrate": self.bitrate,
             "enabled_overrides": sorted(self.enabled_overrides),
         }
 
@@ -112,6 +115,7 @@ class Preset():
             data.get("webp", False),
             data.get("webp_method", 4),
             enabled_overrides=data.get("enabled_overrides", []),
+            bitrate=int(data.get("bitrate", 128)),
         )
 
 class PresetDialog(QDialog):
@@ -190,6 +194,8 @@ class PresetDialog(QDialog):
 
         if mode == "Images":
             self.add_image_settings(form)
+        elif mode == "Audio":
+            self.add_audio_settings(form)
         else:
             self.add_webm_settings(form)
 
@@ -282,7 +288,11 @@ class PresetDialog(QDialog):
         if self._local_checks['webp_method'].isChecked():
             result["webp_method"] = self.webp_method.value()
 
-        result.update(self.resize_controls.get_local_overrides())
+        if "bitrate" in self._local_checks and self._local_checks["bitrate"].isChecked():
+            result["bitrate"] = int(self.bitrate.currentData())
+
+        if hasattr(self, "resize_controls"):
+            result.update(self.resize_controls.get_local_overrides())
 
         return result
 
@@ -435,6 +445,23 @@ class PresetDialog(QDialog):
             "webp_method",
         )
 
+    def add_audio_settings(self, form):
+        from .conversion.audio import SUPPORTED_BITRATES
+
+        self.bitrate = QComboBox()
+        for value in SUPPORTED_BITRATES:
+            self.bitrate.addItem(f"{value} kbps", value)
+
+        index = self.bitrate.findData(int(getattr(self.preset, "bitrate", 128)))
+        self.bitrate.setCurrentIndex(index if index >= 0 else self.bitrate.findData(128))
+
+        self._add_local_field(
+            form,
+            "Bitrate:",
+            self.bitrate,
+            "bitrate",
+        )
+
     def add_webm_settings(self, form):
         settings = normalize_webm_settings(self.preset.webm)
 
@@ -582,6 +609,9 @@ class PresetDialog(QDialog):
             if self.preset.min_quality > self.preset.max_quality:
                 QMessageBox.warning(self, "Invalid quality", "Min quality cannot be greater than Max quality.")
                 return
+
+        elif self.mode == "Audio":
+            self.preset.bitrate = int(self.bitrate.currentData())
 
         else:
             self.preset.webm = self.collect_webm()
