@@ -30,6 +30,7 @@ from core.folder_tree import FolderTree
 from core.preset import Preset
 from core.utils import textutils, pathutils, setutils
 from core.custom.CustomQIcon import IconCache
+from core.custom.CustomQSVG import CustomQSVG
 from core.taskbar import TaskbarProgress
 
 
@@ -1357,8 +1358,16 @@ class MainWindow(QMainWindow):
 
                 if is_active or is_queued:
                     button.setText("")
-                    button.setIcon(QIcon("icons/status_loading.svg"))
                     button.setEnabled(False)
+
+                    icon = CustomQSVG(
+                        "icons/status_loading.svg",
+                        button,
+                    )
+
+                    button.setIcon(icon)
+
+                    icon.start()
 
                 else:
                     button.setText(button.property("conversion_original_text") or button.text())
