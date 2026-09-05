@@ -3,6 +3,7 @@
 
 import os
 import pickle
+import time
 
 from pathlib import Path
 from PyQt6.QtCore import Qt, QUrl, QSize, QTimer
@@ -35,15 +36,68 @@ from config import (
 )
 
 
-
 def folder_cache_key(folder, preset):
     return str(Path(folder).resolve()), preset.cache_key
+
+class ConvertedFileButton(QPushButton):
+    def __init__(self, output_path, parent=None):
+        super().__init__(parent)
+        self.output_path = Path(output_path).resolve()
+        self.tooltip_prefix = ""
+        self.tooltip_extra = ""
+
+    @staticmethod
+    def format_elapsed_time(seconds):
+        minutes = int(seconds // 60)
+
+        if minutes < 60:
+            return f"{minutes} min ago"
+
+        hours = minutes // 60
+
+        if hours < 24:
+            remaining_minutes = minutes % 60
+
+            if remaining_minutes:
+                return f"{hours} h {remaining_minutes} min ago"
+
+            return f"{hours} h ago"
+
+        days = hours // 24
+        remaining_hours = hours % 24
+
+        if remaining_hours:
+            return f"{days} d {remaining_hours} h ago"
+
+        return f"{days} d ago"
+
+    def update_tooltip(self):
+        try:
+            converted_at = self.output_path.stat().st_mtime
+        except OSError:
+            self.setToolTip(
+                f"{self.tooltip_prefix}"
+                f"{self.output_path}"
+            )
+            return
+
+        elapsed_seconds = max(0, time.time() - converted_at)
+        elapsed_text = self.format_elapsed_time(elapsed_seconds)
+
+        self.setToolTip(
+            f"{self.tooltip_prefix}"
+            f"{self.output_path}"
+            f"\nSaved {elapsed_text}"
+            f"{self.tooltip_extra}"
+        )
+
+    def enterEvent(self, event):
+        self.update_tooltip()
+        super().enterEvent(event)
 
 
 class MainWindow(QMainWindow):
     PROJECT_VERSION = 17
-
-
 
     def __init__(self):
         super().__init__()
@@ -665,19 +719,19 @@ class MainWindow(QMainWindow):
                 except OSError:
                     size = 0
 
-                button = QPushButton(
-                    textutils.format_size(size)
-                )
+                button = ConvertedFileButton(output, self)
+                button.setText(textutils.format_size(size))
+                button.setIcon(QIcon("icons/audio.svg"))
 
                 button.setFixedHeight(25)
                 button.setFixedWidth(75)
-                button.setFlat(True)
+                # button.setFlat(True)
 
-                button.setToolTip(
-                    f"Open converted audio:\n"
-                    f"{output}\n"
-                    f"Size: {textutils.format_size(size)}"
+                button.setProperty(
+                    "converted_size",
+                    textutils.format_size(size),
                 )
+                button.update_tooltip()
 
                 button.clicked.connect(
                     lambda checked=False, path=output:
@@ -894,7 +948,7 @@ class MainWindow(QMainWindow):
                 if not root:
                     audio_button = QToolButton()
                     audio_button.setIcon(QIcon("icons/folder.svg"))
-                    audio_button.setToolTip("Open converted audio folder")
+                    audio_button.setToolTip("Open converted audio folder.")
                     audio_button.setFixedWidth(25)
                     audio_button.setFixedHeight(25)
                     audio_button.clicked.connect(lambda checked=False, s=settings, p=preset, f=Path(folder): self.open_conversion_result(s, p, f))
@@ -986,26 +1040,18 @@ class MainWindow(QMainWindow):
                 # -------------------------------------------------------------------------
 
                 if webm_output is not None and webm_output.is_file() and len(webm_folders) == 1:
-
-                    webm_button = QPushButton(
-                        textutils.format_size(webm_size)
-                    )
-
-                    if not webm_size:
-                        webm_button.setIcon(
-                            QIcon("icons/webm_play_error.svg")
-                        )
-                    else:
-                        webm_button.setIcon(
-                            QIcon("icons/webm_play.svg")
-                        )
-
+                    webm_button = ConvertedFileButton(webm_output, self)
                     webm_button.setFixedHeight(25 if not root else 30)
                     webm_button.setFixedWidth(75)
 
-                    webm_button.setToolTip(
-                        f"Open WebM animation\n{webm_output}"
-                    )
+                    if not webm_size:
+                        webm_button.setIcon(QIcon("icons/webm_play_error.svg"))
+                    else:
+                        webm_button.setIcon(QIcon("icons/webm_play.svg"))
+
+                    webm_button.setText(textutils.format_size(webm_size))
+                    webm_button.tooltip_prefix = "Open WebM animation\n"
+                    webm_button.update_tooltip()
 
                     webm_button.clicked.connect(
                         lambda checked=False,
@@ -1063,76 +1109,6 @@ class MainWindow(QMainWindow):
     # Audio output helpers
     # =========================================================================
 
-    def show_output_folder_context_menu(
-        self,
-        button,
-        path,
-        refresh_callback=None,
-    ):
-        """
-        Context menu for an Audio output folder.
-        """
-        path = Path(path).resolve()
-
-        if not path.exists() or not path.is_dir():
-            return
-
-        menu = QMenu(button)
-
-        open_action = menu.addAction(
-            "Open Folder"
-        )
-
-        action = menu.exec(
-            button.mapToGlobal(
-                button.rect().bottomLeft()
-            )
-        )
-
-        if action == open_action:
-            QDesktopServices.openUrl(
-                QUrl.fromLocalFile(
-                    str(path)
-                )
-            )
-
-            if refresh_callback:
-                refresh_callback()
-
-    def get_audio_output_folder(self, settings, preset, folder):
-        """
-        Return the output folder corresponding to the source folder.
-
-        Example:
-
-            Source:
-                /Music/Album
-
-            Project source:
-                /Music
-
-            Output:
-                /Converted
-
-            Result:
-                /Converted/Album
-        """
-        if not preset or not preset.output_folder:
-            return Path()
-
-        folder = Path(folder).resolve()
-        source_root = Path(settings.source_folder).resolve()
-        output_root = Path(preset.output_folder).resolve()
-
-        try:
-            relative = folder.relative_to(source_root)
-        except ValueError:
-            # The folder is outside the project source root.
-            relative = Path(folder.name)
-
-        return output_root / relative
-
-
     def get_audio_output_file(self, settings, preset, source):
         """
         Find the converted audio file corresponding to one source file.
@@ -1180,123 +1156,6 @@ class MainWindow(QMainWindow):
         return candidates[0]
 
 
-    def get_audio_output_size(self, settings, preset, folder):
-        """
-        Return the total size of converted audio files in a folder.
-
-        Only files directly inside the corresponding output folder
-        are counted.
-        """
-        if not preset or not preset.output_folder:
-            return 0
-
-        output_folder = self.get_audio_output_folder(
-            settings,
-            preset,
-            folder,
-        )
-
-        if not output_folder.exists() or not output_folder.is_dir():
-            return 0
-
-        total = 0
-
-        try:
-            for path in output_folder.iterdir():
-                if not path.is_file():
-                    continue
-
-                try:
-                    total += path.stat().st_size
-                except OSError:
-                    continue
-
-        except OSError:
-            return 0
-
-        return total
-
-
-    def get_audio_file_size(self, settings, preset, source):
-        """
-        Return the size of one converted audio file.
-
-        Returns 0 when the converted file does not exist.
-        """
-        output = self.get_audio_output_file(
-            settings,
-            preset,
-            source,
-        )
-
-        if output is None:
-            return 0
-
-        try:
-            return output.stat().st_size
-        except OSError:
-            return 0
-
-
-    def _audio_folder_signature(self, settings, preset, folder):
-        """
-        Signature of the Audio output folder.
-
-        Used for cache invalidation.
-        """
-        output_folder = self.get_audio_output_folder(
-            settings,
-            preset,
-            folder,
-        )
-
-        if not output_folder.exists() or not output_folder.is_dir():
-            return None
-
-        entries = []
-
-        try:
-            for path in output_folder.iterdir():
-                if not path.is_file():
-                    continue
-
-                try:
-                    stat = path.stat()
-
-                    entries.append(
-                        (
-                            path.name,
-                            stat.st_mtime_ns,
-                            stat.st_size,
-                        )
-                    )
-
-                except OSError:
-                    continue
-
-        except OSError:
-            return None
-
-        return tuple(sorted(entries))
-
-
-    def _audio_source_signature(self, source):
-        """
-        Signature of a source audio file.
-        """
-        source = Path(source).resolve()
-
-        try:
-            stat = source.stat()
-        except OSError:
-            return None
-
-        return (
-            stat.st_mtime_ns,
-            stat.st_size,
-        )
-
-
     def _invalidate_audio_status_cache(self, folder):
         folder = Path(folder).resolve()
 
@@ -1309,6 +1168,7 @@ class MainWindow(QMainWindow):
 
             if key[-1] == "audio":
                 del self._folder_status_cache[key]
+
 
     def show_folder_context_menu(self, pos):
 
@@ -1324,9 +1184,6 @@ class MainWindow(QMainWindow):
 
         path = Path(path).resolve()
 
-        if not path.is_dir():
-            return
-
         menu = QMenu(self.tree)
 
         open_folder_action = menu.addAction("Open Folder")
@@ -1334,7 +1191,11 @@ class MainWindow(QMainWindow):
         action = menu.exec(self.tree.viewport().mapToGlobal(pos))
 
         if action == open_folder_action:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+            if path.is_dir():
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+            else:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
 
 
     def show_output_context_menu(self, button, path, refresh_callback=None):
@@ -1503,21 +1364,20 @@ class MainWindow(QMainWindow):
         for preset in settings.presets:
             output, status, outdated = self.get_file_status(source, settings, preset)
 
-            button = QPushButton(status)
+            # button = QPushButton(status)
+            button = ConvertedFileButton(output, self)
+            button.setText(status)
+
             button.setFixedHeight(25)
             button.setFixedWidth(75)
             button.setFlat(True)
 
             if output is not None and output.exists():
                 button.setIcon(QIcon("icons/image.svg"))
-                button.setToolTip(f"Open converted image: {preset.name}\n{output}")
+                button.update_tooltip()
 
                 if outdated:
                     button.setStyleSheet("QPushButton { color: #ff9800; }")
-                    button.setToolTip(
-                        f"Image is outdated and needs reconversion: "
-                        f"{preset.name}\n{output}"
-                    )
 
                 button.clicked.connect(lambda checked=False, path=output: self.open_file(path))
 
