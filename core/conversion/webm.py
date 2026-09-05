@@ -24,8 +24,6 @@ class WebMConverter():
 
     IMAGE_EXTENSIONS = {".jpg", ".png", ".webp"}
 
-    PREVIEW_QUALITY = 95
-
     EXIF_DATA = {
         (315,): "keyclap",
         (33432,): f"Copyright {datetime.now().year} keyclap. All Rights Reserved.",
@@ -258,6 +256,7 @@ class WebMConverter():
         sharpen = int(self.settings["sharpen"])
         sharpen_radius = float(self.settings["sharpen_radius"])
         downsample = float(self.settings["downsample"])
+        image_quality = int(self.settings["image_quality"])
 
         with Image.open(image) as img:
 
@@ -290,7 +289,7 @@ class WebMConverter():
             rgb_img.save(
                 output_file,
                 format="JPEG",
-                quality=self.PREVIEW_QUALITY,
+                quality=image_quality,
                 compression="jpeg",
                 icc_profile=icc_profile,
                 exif=exif,

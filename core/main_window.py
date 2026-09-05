@@ -51,7 +51,7 @@ class ConvertedFileButton(QPushButton):
         minutes = int(seconds // 60)
 
         if minutes < 60:
-            return f"{minutes} min ago"
+            return f"{minutes}min ago"
 
         hours = minutes // 60
 
@@ -59,17 +59,17 @@ class ConvertedFileButton(QPushButton):
             remaining_minutes = minutes % 60
 
             if remaining_minutes:
-                return f"{hours} h {remaining_minutes} min ago"
+                return f"{hours}h {remaining_minutes}min ago"
 
-            return f"{hours} h ago"
+            return f"{hours}h ago"
 
         days = hours // 24
         remaining_hours = hours % 24
 
         if remaining_hours:
-            return f"{days} d {remaining_hours} h ago"
+            return f"{days} d {remaining_hours}h ago"
 
-        return f"{days} d ago"
+        return f"{days}d ago"
 
     def update_tooltip(self):
         try:
@@ -87,7 +87,7 @@ class ConvertedFileButton(QPushButton):
         self.setToolTip(
             f"{self.tooltip_prefix}"
             f"{self.output_path}"
-            f"\nSaved {elapsed_text}"
+            f"\n\nSaved {elapsed_text}"
             f"{self.tooltip_extra}"
         )
 
@@ -624,10 +624,18 @@ class MainWindow(QMainWindow):
                 str(entry),
             )
 
-            child.setToolTip(
-                0,
-                str(entry),
-            )
+            try:
+                converted_at = entry.stat().st_mtime
+                elapsed_seconds = max(0, time.time() - converted_at)
+                elapsed_text = ConvertedFileButton.format_elapsed_time(elapsed_seconds)
+
+                child.setToolTip(
+                    0,
+                    f"{entry}\n\nModified {elapsed_text}"
+                )
+
+            except:
+                pass
 
             child.setSizeHint(
                 0,
