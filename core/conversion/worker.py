@@ -37,8 +37,8 @@ class ConversionWorker(QThread):
         self.progress_lock = Lock()
 
         # Последние измерения: (timestamp, completed)
-        self.progress_samples = deque(maxlen=30)
-
+        self.progress_samples = deque(maxlen=3)
+        self.last_mode = None
         self.eta = 0.0
 
     def stop(self):
@@ -128,6 +128,16 @@ class ConversionWorker(QThread):
                 changed_folders.add(str(Path(folder).resolve()))
 
                 self.message.emit(f"[{index}/{total_jobs}] {settings.mode} | {preset.name} | {folder}")
+
+                if self.last_mode != settings.mode:
+                    self.last_mode = settings.mode
+
+                    if settings.mode == "Images":
+                        self.progress_samples = deque(maxlen=100)
+                    else:
+                        self.progress_samples = deque(maxlen=3)
+
+                    self.eta = 0.0
 
                 if settings.mode == "Images":
                     converter = ImageConverter(

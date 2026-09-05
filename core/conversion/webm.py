@@ -21,7 +21,7 @@ from ..utils import textutils
 
 class WebMConverter():
 
-    IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+    IMAGE_EXTENSIONS = {".jpg", ".png", ".webp"}
 
     PROFILE_SRGB = ImageCms.ImageCmsProfile(
         ImageCms.createProfile("sRGB")

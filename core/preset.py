@@ -20,7 +20,7 @@ from random import randint
 
 class Preset():
 
-    def __init__(self, name="New Preset", downscale=1.0, target_size=400, max_quality=95, min_quality=50, output_folder="", suffix="", sharpen_radius=0.5, sharpen_percent=0, sharpen_threshold=0, webm=None, resize_mode="Downsample", resolution_width=0, resolution_height=0, id=None, panorama=False, enabled_overrides=None):
+    def __init__(self, name="New Preset", downscale=1.0, target_size=400, max_quality=95, min_quality=50, output_folder="", suffix="", sharpen_radius=0.5, sharpen_percent=0, sharpen_threshold=0, webm=None, resize_mode="Downsample", resolution_width=0, resolution_height=0, id=None, panorama=False, webp=False, webp_method=4, enabled_overrides=None):
         self.name = name
         self.resize_mode = resize_mode
         self.resolution_width = int(resolution_width)
@@ -37,6 +37,8 @@ class Preset():
         self.webm = normalize_webm_settings(webm or {})
         self.id = id or randint(0, 999999999)
         self.panorama = panorama
+        self.webp = webp
+        self.webp_method = webp_method
         self.enabled_overrides = set(enabled_overrides or [])
 
     @property
@@ -75,6 +77,8 @@ class Preset():
             "webm": self.webm,
             "id": self.id,
             "panorama": self.panorama,
+            "webp": self.webp,
+            "webp_method": self.webp_method,
             "enabled_overrides": sorted(self.enabled_overrides),
         }
 
@@ -102,6 +106,8 @@ class Preset():
             int(data.get("resolution_height", 0)),
             data.get("id", None),
             data.get("panorama", False),
+            data.get("webp", False),
+            data.get("webp_method", 4),
             enabled_overrides=data.get("enabled_overrides", []),
         )
 
@@ -267,6 +273,12 @@ class PresetDialog(QDialog):
         if self.panorama_check.isChecked():
             result["panorama"] = self.panorama_enabled.isChecked()
 
+        if self.webp_check.isChecked():
+            result["webp"] = self.webp_enabled.isChecked()
+
+        if self._local_checks['webp_method'].isChecked():
+            result["webp_method"] = self.webp_method.value()
+
         result.update(self.resize_controls.get_local_overrides())
 
         return result
@@ -384,6 +396,41 @@ class PresetDialog(QDialog):
             form.addRow("Panorama:", panorama_layout)
         else:
             form.addRow("Panorama:", self.panorama_enabled)
+
+        self.webp_enabled = QCheckBox()
+        self.webp_enabled.setChecked(self.preset.webp)
+
+        if self.local_override:
+            webp_layout = QHBoxLayout()
+            webp_layout.setContentsMargins(0, 0, 0, 0)
+
+            webp_layout.addWidget(self.webp_enabled)
+
+            self.webp_check = QCheckBox()
+            self.webp_check.setChecked("webp" in self.enabled_overrides)
+            self.webp_check.setToolTip(
+                "Override the global 'WebP' setting for this folder."
+            )
+
+            webp_layout.addWidget(self.webp_check)
+
+            self._local_checks["webp"] = self.webp_check
+
+            form.addRow("WebP:", webp_layout)
+        else:
+            form.addRow("WebP:", self.webp_enabled)
+
+        self.webp_method = QSpinBox()
+        self.webp_method.setRange(1, 6)
+        self.webp_method.setSingleStep(1)
+        self.webp_method.setValue(self.preset.webp_method)
+
+        self._add_local_field(
+            form,
+            "WebP Method:",
+            self.webp_method,
+            "webp_method",
+        )
 
     def add_webm_settings(self, form):
         settings = normalize_webm_settings(self.preset.webm)
@@ -526,6 +573,8 @@ class PresetDialog(QDialog):
             self.preset.sharpen_percent = self.sharpen_percent.value()
             self.preset.sharpen_threshold = self.sharpen_threshold.value()
             self.preset.panorama = self.panorama_enabled.isChecked()
+            self.preset.webp = self.webp_enabled.isChecked()
+            self.preset.webp_method = self.webp_method.value()
 
             if self.preset.min_quality > self.preset.max_quality:
                 QMessageBox.warning(self, "Invalid quality", "Min quality cannot be greater than Max quality.")

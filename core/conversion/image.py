@@ -10,6 +10,7 @@ from threading import Event
 from pathlib import Path
 from PIL import Image, ImageFilter
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from math import ceil
 
 from config import PROFILE_SRGB, CACHE_DIR, IMAGE_CACHE_FILE, RESAMPLE, EXIF_DATA
 from ..utils import textutils
@@ -141,6 +142,9 @@ class ImageConverter():
         else:
             output = str(self.output / relative_folder / output_name) + ".suffix"
 
+        if self.preset.webp:
+            return Path(output).with_suffix(".webp")
+
         return Path(output).with_suffix(".jpg")
 
 
@@ -169,6 +173,11 @@ class ImageConverter():
 
                 all_files.append(file)
 
+                if self.preset.webp:
+                    suffix = ".webp"
+                else:
+                    suffix = ".jpg"
+
                 if self.preset.panorama:
 
                     try:
@@ -179,13 +188,13 @@ class ImageConverter():
                         continue
 
                     if is_background:
-                        output_name = Path(output_name).with_suffix(".jpg").name
+                        output_name = Path(output_name).with_suffix(suffix).name
                     else:
                         output_name = Path(output_name).with_suffix(".webp")
                         output_name = output_name.with_stem(output_name.stem + f"@{NON_BACKGROUND_OVERSAMPLE}").name
 
                 else:
-                    output_name = Path(output_name).with_suffix(".jpg").name
+                    output_name = Path(output_name).with_suffix(suffix).name
 
                 relative_folder = file.parent.relative_to(self.source_root)
                 output_file = self.output / relative_folder / output_name
@@ -215,15 +224,6 @@ class ImageConverter():
 
         return files, all_files
 
-    def resize_image(self, image):
-
-        if self.resize_mode == "Resolution":
-            return image.resize((self.resolution_width, self.resolution_height), RESAMPLE)
-
-        width = max(1, round(image.width / self.downscale))
-        height = max(1, round(image.height / self.downscale))
-
-        return image.resize((width, height), RESAMPLE)
 
     def convert_file(self, source, data, index):
 
@@ -244,8 +244,10 @@ class ImageConverter():
                     is_background = (image.width == 12000) and (image.height == 6000)
 
                     if is_background:
-                        output_format = "JPEG"
-                        output_suffix = ""
+                        if self.preset.webp:
+                            output_format = "WEBP"
+                        else:
+                            output_format = "JPEG"
                         convert_mode = "RGB"
 
                         width = self.resolution_width
@@ -254,15 +256,16 @@ class ImageConverter():
                     else:
                         oversample = NON_BACKGROUND_OVERSAMPLE
                         output_format = "WEBP"
-                        output_suffix = ""
                         convert_mode = "RGBA"
 
                         width = image.width * (self.resolution_width * oversample / 12000)
                         height = image.height * (self.resolution_height * oversample / 6000)
 
                 else:
-                    output_format = "JPEG"
-                    output_suffix = self.suffix
+                    if self.preset.webp:
+                        output_format = "WEBP"
+                    else:
+                        output_format = "JPEG"
                     convert_mode = "RGB"
 
                     if self.resize_mode == "Resolution":
@@ -276,19 +279,14 @@ class ImageConverter():
                 maximum_quality = self.maximum_quality
                 minimum_quality = self.minimum_quality
 
-                width = max(1, int(width))
-                height = max(1, int(height))
+                width = max(1, ceil(width))
+                height = max(1, ceil(height))
 
-                # #################################################################
                 # Resize
-                # #################################################################
+                image.thumbnail((width, height), resample=RESAMPLE, reducing_gap=None)
+                # image = image.resize((width, height), resample=RESAMPLE)
 
-                image = image.resize((width, height), resample=RESAMPLE)
-
-                # #################################################################
                 # Sharpen
-                # #################################################################
-
                 if self.sharpen_percent > 0 and self.sharpen_radius > 0:
                     image = image.filter(
                         ImageFilter.UnsharpMask(
@@ -298,6 +296,7 @@ class ImageConverter():
                         )
                     )
 
+                # ICC Profile & EXIF
                 icc_profile = image.info.get("icc_profile", PROFILE_SRGB)
 
                 exif = image.getexif()
@@ -305,34 +304,59 @@ class ImageConverter():
                 for tag, value in EXIF_DATA.items():
                     exif[tag] = value
 
+                # RGB or RGBA
                 if image.mode != convert_mode:
                     converted_image = image.convert(convert_mode)
                 else:
                     converted_image = image
 
-                # #################################################################
-                # Output filename
-                # #################################################################
-
                 output = output.with_suffix(".jpg" if output_format == "JPEG" else ".webp")
-
-                # if output_suffix:
-                #     output = output.with_stem(output.stem + output_suffix)
 
                 # #################################################################
                 # WebP
 
                 if output_format == "WEBP":
-                    quality = 90
+                    low = minimum_quality
+                    high = maximum_quality
+                    best_quality = minimum_quality
+
+                    while low <= high:
+
+                        if self.stop_event.is_set():
+                            return
+
+                        quality = (low + high) // 2
+
+                        output_buffer = BytesIO()
+
+                        converted_image.save(
+                            output_buffer,
+                            format="WEBP",
+                            quality=quality,
+                            lossless=False,
+                            method=self.preset.webp_method,
+                            icc_profile=icc_profile,
+                        )
+
+                        file_size = output_buffer.tell()
+                        output_buffer.close()
+
+                        if file_size <= target_size * 1024:
+                            best_quality = quality
+                            low = quality + 1
+                        else:
+                            high = quality - 1
+
+                    final_quality = max(10, min(100, best_quality))
 
                     converted_image.save(
                         output,
                         format="WEBP",
-                        quality=quality,
+                        quality=final_quality,
                         lossless=False,
-                        method=6,
                         icc_profile=icc_profile,
                         exif=exif,
+                        method=self.preset.webp_method,
                     )
 
                 # #################################################################
@@ -440,7 +464,7 @@ class ImageConverter():
         # PIL освобождает GIL на тяжёлых операциях resize/save,
         # поэтому несколько worker'ов хорошо загружают CPU.
         cpu_count = os.cpu_count() or 1
-        max_workers = 3#max(2, int(cpu_count * 0.925))
+        max_workers = max(2, int(cpu_count * 0.8))
 
         # Сначала быстро помечаем уже готовые файлы.
         tasks = []
