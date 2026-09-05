@@ -27,6 +27,7 @@ from core.rescan import RescanWorker
 from core.folder_tree import FolderTree
 from core.preset import Preset
 from core.utils import textutils, pathutils, setutils
+from core.custom.CustomQIcon import IconCache
 
 from config import (
     VERSION, SAVES_DIR, CACHE_DIR, PROJECT_EXTENSION, ROOT_ROW_HEIGHT,
@@ -915,14 +916,32 @@ class MainWindow(QMainWindow):
 
                 if not root:
                     open_button = QToolButton()
-                    open_button.setIcon(QIcon("icons/folder.svg"))
-                    open_button.setToolTip("Open converted movies folder")
+                    open_button.setToolTip("Open converted movie preview image")
                     open_button.setFixedWidth(25)
                     open_button.setFixedHeight(25)
 
                     open_button.clicked.connect(lambda checked=False, s=settings, p=preset, f=Path(folder): self.open_conversion_result(s, p, f))
-                    open_button.setEnabled(bool(preset.output_folder))
+                    # open_button.setEnabled(bool(preset.output_folder))
                     layout.addWidget(open_button)
+
+                    local = self.get_local_preset(folder, preset)
+
+                    converter = WebMConverter(
+                        folder,
+                        preset,
+                        local,
+                        source_root=settings.source_folder
+                    )
+
+                    output = converter.get_preview_file()
+
+                    if output.exists():
+                        open_button.setIcon(QIcon("icons/image.svg"))
+                        open_button.setEnabled(True)
+                    else:
+                        open_button.setIcon(IconCache.get("icons/image.svg", opacity=.25))
+                        open_button.setEnabled(False)
+
 
                 # -------------------------------------------------------------------------
                 # WebM output size
@@ -1490,7 +1509,7 @@ class MainWindow(QMainWindow):
             button.setFlat(True)
 
             if output is not None and output.exists():
-                button.setIcon(QIcon("icons/open_image.svg"))
+                button.setIcon(QIcon("icons/image.svg"))
                 button.setToolTip(f"Open converted image: {preset.name}\n{output}")
 
                 if outdated:
@@ -2250,17 +2269,17 @@ class MainWindow(QMainWindow):
         else:
             local = self.get_local_preset(folder, preset)
 
-            output = WebMConverter(
+            converter = WebMConverter(
                 folder,
                 preset,
                 local,
                 source_root=settings.source_folder
-            ).get_output_file()
+            )
+
+            output = converter.get_preview_file()
 
             if output.exists():
                 self.open_file(output)
-            elif output.parent.exists():
-                QDesktopServices.openUrl(QUrl.fromLocalFile(str(output.parent)))
 
 
     def start_thumbnail_worker(self, folder=None):
