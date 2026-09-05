@@ -986,14 +986,6 @@ class MainWindow(QMainWindow):
             else:
 
                 if not root:
-                    open_button = QToolButton()
-                    open_button.setToolTip("Open converted movie preview image")
-                    open_button.setFixedWidth(25)
-                    open_button.setFixedHeight(25)
-
-                    open_button.clicked.connect(lambda checked=False, s=settings, p=preset, f=Path(folder): self.open_conversion_result(s, p, f, preview=True))
-                    # open_button.setEnabled(bool(preset.output_folder))
-                    layout.addWidget(open_button)
 
                     local = self.get_local_preset(folder, preset)
 
@@ -1006,13 +998,22 @@ class MainWindow(QMainWindow):
 
                     output = converter.get_preview_file()
 
+                    open_button = ConvertedFileButton(output, self)
+                    open_button.setFixedWidth(25)
+                    open_button.setFixedHeight(25)
+                    open_button.setStyleSheet(""" QPushButton { padding: 0px; margin: 0px; } """)
+                    open_button.clicked.connect(lambda checked=False, s=settings, p=preset, f=Path(folder): self.open_conversion_result(s, p, f, preview=True))
+
                     if output.exists():
                         open_button.setIcon(QIcon("icons/image.svg"))
                         open_button.setEnabled(True)
                     else:
                         open_button.setIcon(IconCache.get("icons/image.svg", opacity=.25))
-                        open_button.setEnabled(False)
 
+                        open_button.setEnabled(False)
+                    open_button.update_tooltip()
+
+                    layout.addWidget(open_button)
 
                 # -------------------------------------------------------------------------
                 # WebM output size
@@ -1067,7 +1068,6 @@ class MainWindow(QMainWindow):
                         webm_button.setIcon(QIcon("icons/webm_play.svg"))
 
                     webm_button.setText(textutils.format_size(webm_size))
-                    webm_button.tooltip_prefix = "Open WebM animation\n"
                     webm_button.update_tooltip()
 
                     webm_button.clicked.connect(
