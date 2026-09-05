@@ -11,7 +11,7 @@ from datetime import datetime
 from threading import Event
 from pathlib import Path
 
-from PIL import Image, ImageCms, ImageEnhance
+from PIL import Image, ImageCms, ImageEnhance, ImageFilter
 
 from config import WEBM_CACHE_FILE, MINTERPOLATE
 
@@ -220,7 +220,8 @@ class WebMConverter():
         output_file.unlink(missing_ok=True)
 
         resolution = self.resolution()
-        sharpen = float(self.settings["sharpen"])
+        sharpen = int(self.settings["sharpen"])
+        sharpen_radius = float(self.settings["sharpen_radius"])
 
         with Image.open(image) as img:
 
@@ -230,9 +231,14 @@ class WebMConverter():
             else:
                 width, height = resolution
 
-            if sharpen:
-                enhancer = ImageEnhance.Sharpness(img)
-                img = enhancer.enhance(sharpen * 10)
+            if sharpen and sharpen_radius:
+                img = img.filter(
+                    ImageFilter.UnsharpMask(
+                        radius=sharpen_radius,
+                        percent=int(sharpen * 100),
+                        threshold=0,
+                    )
+                )
 
             img.thumbnail(
                 (width, height),
@@ -322,13 +328,14 @@ class WebMConverter():
             )
 
         # Sharpen
-        sharpen = float(settings["sharpen"])
+        sharpen = max(-2, min(5, int(settings["sharpen"]) / 100.0))
+        sharpen_radius = max(3, min(23, round(float(settings["sharpen_radius"] * 3))))
 
         if sharpen:
             filters.append(
                 f"unsharp="
-                f"luma_msize_x=3:"
-                f"luma_msize_y=3:"
+                f"luma_msize_x={sharpen_radius}:"
+                f"luma_msize_y={sharpen_radius}:"
                 f"luma_amount={sharpen}"
             )
 
@@ -337,6 +344,12 @@ class WebMConverter():
 
     def run_process(self, command):
 
+        startupinfo = None
+        creationflags = 0
+
+        if __import__("sys").platform == "win32":
+            creationflags = subprocess.CREATE_NO_WINDOW
+
         self.process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
@@ -344,6 +357,8 @@ class WebMConverter():
             text=True,
             encoding="utf-8",
             errors="replace",
+            startupinfo=startupinfo,
+            creationflags=creationflags,
         )
 
         while True:

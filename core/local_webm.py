@@ -35,6 +35,7 @@ def default_webm_settings():
         "crf": 15,
         "image_quality": 90,
         "sharpen": 0.0,
+        "sharpen_radius": 1.0,
         "interpolate": 4,
         "loop": True,
         "reverse": False,
@@ -194,11 +195,19 @@ class LocalWebMDialog(QDialog):
         self.image_quality.setValue(s["image_quality"])
         form.addRow("Image quality:", self.image_quality)
 
-        self.sharpen = QDoubleSpinBox()
-        self.sharpen.setRange(0, 10)
-        self.sharpen.setDecimals(2)
-        self.sharpen.setValue(s["sharpen"])
+        self.sharpen = QSpinBox()
+        self.sharpen.setRange(0, 1000)
+        self.sharpen.setSingleStep(10)
+        self.sharpen.setValue(int(s["sharpen"]))
         form.addRow("Sharpen:", self.sharpen)
+
+        self.sharpen_radius = QDoubleSpinBox()
+        self.sharpen_radius.setSuffix(" px")
+        self.sharpen_radius.setRange(0, 10)
+        self.sharpen_radius.setSingleStep(0.25)
+        self.sharpen_radius.setDecimals(2)
+        self.sharpen_radius.setValue(s["sharpen_radius"])
+        form.addRow("Sharpen radius:", self.sharpen_radius)
 
         self.interpolate = QSpinBox()
         self.interpolate.setRange(0, 6)
@@ -231,6 +240,7 @@ class LocalWebMDialog(QDialog):
             "crf": self.crf.value(),
             "image_quality": self.image_quality.value(),
             "sharpen": self.sharpen.value(),
+            "sharpen_radius": self.sharpen_radius.value(),
             "interpolate": self.interpolate.value(),
             "loop": self.loop.isChecked(),
             "reverse": self.reverse.isChecked(),

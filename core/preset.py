@@ -147,7 +147,7 @@ class PresetDialog(QDialog):
 
         self.setWindowTitle("Preset Settings")
         self.setWindowIcon(QIcon(ICON))
-        self.resize(600, 0)
+        self.resize(500, 0)
 
         layout = QVBoxLayout(self)
         form = QFormLayout()
@@ -178,7 +178,6 @@ class PresetDialog(QDialog):
         suffix_layout = QHBoxLayout()
 
         self.suffix_edit = QLineEdit(preset.suffix)
-        self.suffix_edit.setPlaceholderText("Example: @2")
         suffix_layout.addWidget(self.suffix_edit)
 
         if self.local_override:
@@ -211,7 +210,7 @@ class PresetDialog(QDialog):
 
         layout.addWidget(buttons)
 
-        self.adjustSize()
+        # self.adjustSize()
         self.setUpdatesEnabled(True)
 
     def _add_local_field(self, form, label, widget, key):
@@ -351,9 +350,10 @@ class PresetDialog(QDialog):
         )
 
         self.sharpen_radius = QDoubleSpinBox()
-        self.sharpen_radius.setRange(0.0, 100.0)
+        self.sharpen_radius.setRange(0, 10)
         self.sharpen_radius.setDecimals(2)
         self.sharpen_radius.setSingleStep(0.25)
+        self.sharpen_radius.setSuffix(" px")
         self.sharpen_radius.setValue(self.preset.sharpen_radius)
 
         self._add_local_field(
@@ -523,11 +523,19 @@ class PresetDialog(QDialog):
         self.image_quality.setValue(settings["image_quality"])
         form.addRow("Image quality:", self.image_quality)
 
-        self.sharpen = QDoubleSpinBox()
-        self.sharpen.setRange(0, 10)
-        self.sharpen.setDecimals(2)
-        self.sharpen.setValue(settings["sharpen"])
+        self.sharpen = QSpinBox()
+        self.sharpen.setRange(0, 1000)
+        self.sharpen.setSingleStep(10)
+        self.sharpen.setValue(int(settings["sharpen"]))
         form.addRow("Sharpen:", self.sharpen)
+
+        self.sharpen_radius = QDoubleSpinBox()
+        self.sharpen_radius.setSuffix(" px")
+        self.sharpen_radius.setRange(0, 10)
+        self.sharpen_radius.setSingleStep(0.25)
+        self.sharpen_radius.setDecimals(2)
+        self.sharpen_radius.setValue(settings["sharpen_radius"])
+        form.addRow("Sharpen Radius:", self.sharpen_radius)
 
         self.interpolate = QSpinBox()
         self.interpolate.setRange(0, 6)
@@ -557,6 +565,7 @@ class PresetDialog(QDialog):
             "crf": self.crf.value(),
             "image_quality": self.image_quality.value(),
             "sharpen": self.sharpen.value(),
+            "sharpen_radius": self.sharpen_radius.value(),
             "interpolate": self.interpolate.value(),
             "loop": self.loop.isChecked(),
             "reverse": self.reverse.isChecked(),

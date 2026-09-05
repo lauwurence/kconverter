@@ -110,5 +110,3 @@ class LocalImageDialog(PresetDialog):
 
         # Do NOT call self.accept() here.
         QDialog.accept(self)
-
-

@@ -21,9 +21,9 @@ class FolderSettings():
         self.source_folder = str(Path(source_folder).resolve())
         self.mode = mode
         self.presets = [
-            Preset("810p", 3.0, 200, 90, 50, "", "@0.75"),
+            Preset("810p",  3.0, 200, 90, 50, "", "@0.75"),
             Preset("1080p", 2.0, 400, 95, 50, "", ""),
-            Preset("4K", 1.0, 800, 100, 50, "", "@2"),
+            Preset("2160p", 1.0, 800, 100, 50, "", "@2"),
         ]
 
         for preset in self.presets:
