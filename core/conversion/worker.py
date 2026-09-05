@@ -1,16 +1,12 @@
-################################################################################
-## Conversion Thread
-
 import os
 
 from time import time
-from threading import Event
+from threading import Event, Lock
 from pathlib import Path
-from PyQt6.QtCore import QThread, pyqtSignal
-
 from collections import deque
 from time import monotonic
-from threading import Event, Lock
+
+from PyQt6.QtCore import QThread, pyqtSignal
 
 from .image import ImageConverter
 from .webm import WebMConverter
@@ -18,68 +14,141 @@ from .webm import WebMConverter
 
 class ConversionWorker(QThread):
 
+    # ========================================================
+    # Signals
+    # ========================================================
+
     message = pyqtSignal(str)
+
     error = pyqtSignal(str)
+
     finished_signal = pyqtSignal(object)
+
+    # done, total, eta
     progress = pyqtSignal(int, int, float)
 
+    # ========================================================
+    # Init
+    # ========================================================
 
     def __init__(self, jobs):
         super().__init__()
 
         self.setObjectName("ConversionWorker")
+
         self.jobs = jobs
+
         self.stop_event = Event()
 
+        # Progress
         self.progress_done = 0
         self.progress_total = 0
+
         self.progress_start = monotonic()
+
         self.progress_lock = Lock()
 
-        # Последние измерения: (timestamp, completed)
+        # Последние измерения:
+        #
+        # (timestamp, completed)
+        #
         self.progress_samples = deque(maxlen=3)
+
         self.last_mode = None
+
         self.eta = 0.0
 
+    # ========================================================
+    # Stop
+    # ========================================================
+
     def stop(self):
+        """
+        Request conversion stop.
+        """
+
         self.stop_event.set()
 
+    # ========================================================
+    # Progress
+    # ========================================================
 
     def add_progress(self, done, total):
+        """
+        Called by converters.
+
+        done:
+            Number of newly completed units.
+
+        total:
+            Total units for current converter.
+        """
+
         with self.progress_lock:
+
             self.progress_done += done
 
             now = monotonic()
+
             current_done = self.progress_done
             current_total = self.progress_total
 
-            self.progress_samples.append((now, current_done))
+            self.progress_samples.append(
+                (
+                    now,
+                    current_done
+                )
+            )
 
-            # Недостаточно данных для адекватной оценки.
+            # ------------------------------------------------
+            # ETA
+            # ------------------------------------------------
+
             if len(self.progress_samples) < 2:
+
                 eta = 0.0
 
             else:
+
                 old_time, old_done = self.progress_samples[0]
+
                 dt = now - old_time
                 dd = current_done - old_done
 
                 if dt <= 0 or dd <= 0:
+
                     eta = self.eta
+
                 else:
-                    # Скорость только за последнее окно.
+
+                    # Units per second
                     speed = dd / dt
 
-                    remaining = max(0, current_total - current_done)
+                    remaining = max(
+                        0,
+                        current_total - current_done
+                    )
+
                     new_eta = remaining / speed
 
-                    # Сглаживание ETA.
+                    # Smooth ETA
                     if self.eta <= 0:
+
                         eta = new_eta
+
                     else:
-                        eta = self.eta * 0.7 + new_eta * 0.3
+
+                        eta = (
+                            self.eta * 0.7
+                            +
+                            new_eta * 0.3
+                        )
 
                     self.eta = eta
+
+            # ------------------------------------------------
+            # Emit
+            # ------------------------------------------------
 
             self.progress.emit(
                 current_done,
@@ -87,93 +156,221 @@ class ConversionWorker(QThread):
                 max(0.0, eta),
             )
 
+    # ========================================================
+    # Run
+    # ========================================================
 
     def run(self):
+
         changed_folders = set()
 
         try:
+
+            # =================================================
+            # Calculate total work
+            # =================================================
+
             total_jobs = len(self.jobs)
+
             planned_units = []
 
             for settings, preset, folder, local_settings in self.jobs:
 
                 if settings.mode == "Images":
+
                     count = 0
 
                     try:
+
                         root = Path(folder)
 
                         for base, dirs, names in os.walk(root):
-                            count += sum(1 for name in names if Path(name).suffix.lower() in ImageConverter.INPUT_SUFFIXES)
+
+                            count += sum(
+                                1
+                                for name in names
+                                if Path(name).suffix.lower()
+                                in ImageConverter.INPUT_SUFFIXES
+                            )
 
                     except OSError:
+
                         count = 0
 
-                    planned_units.append(max(1, count))
+                    planned_units.append(
+                        max(1, count)
+                    )
+
                 else:
+
                     planned_units.append(1)
 
-            self.progress_total = sum(planned_units)
-            self.progress_done = 0
-            self.progress_start = time()
-            self.progress.emit(0, max(1, self.progress_total), 0)
+            # =================================================
+            # Initialize progress
+            # =================================================
 
-            for index, job in enumerate(self.jobs, 1,):
+            self.progress_total = sum(
+                planned_units
+            )
+
+            self.progress_done = 0
+
+            self.progress_start = monotonic()
+
+            self.progress_samples.clear()
+
+            self.eta = 0.0
+
+            self.progress.emit(
+                0,
+                max(1, self.progress_total),
+                0.0
+            )
+
+            # =================================================
+            # Process jobs
+            # =================================================
+
+            for index, job in enumerate(
+                self.jobs,
+                1
+            ):
+
+                # ---------------------------------------------
+                # Stop requested?
+                # ---------------------------------------------
 
                 if self.stop_event.is_set():
+
                     break
+
+                # ---------------------------------------------
+                # Job
+                # ---------------------------------------------
 
                 settings, preset, folder, local_settings = job
 
-                changed_folders.add(str(Path(folder).resolve()))
+                changed_folders.add(
+                    str(
+                        Path(folder).resolve()
+                    )
+                )
 
-                self.message.emit(f"[{index}/{total_jobs}] {settings.mode} | {preset.name} | {folder}")
+                self.message.emit(
+                    f"[{index}/{total_jobs}] "
+                    f"{settings.mode} | "
+                    f"{preset.name} | "
+                    f"{folder}"
+                )
+
+                # ---------------------------------------------
+                # Mode changed
+                # ---------------------------------------------
 
                 if self.last_mode != settings.mode:
+
                     self.last_mode = settings.mode
 
                     if settings.mode == "Images":
-                        self.progress_samples = deque(maxlen=100)
+
+                        self.progress_samples = deque(
+                            maxlen=100
+                        )
+
                     else:
-                        self.progress_samples = deque(maxlen=3)
+
+                        self.progress_samples = deque(
+                            maxlen=3
+                        )
 
                     self.eta = 0.0
 
+                # ---------------------------------------------
+                # Create converter
+                # ---------------------------------------------
+
                 if settings.mode == "Images":
+
                     converter = ImageConverter(
                         folder,
                         preset,
                         self.stop_event,
                         self.add_progress,
-                        source_root=settings.source_folder)
+                        source_root=settings.source_folder
+                    )
 
                 else:
+
                     converter = WebMConverter(
                         folder,
                         preset,
                         local_settings,
                         self.stop_event,
                         self.add_progress,
-                        source_root=settings.source_folder)
+                        source_root=settings.source_folder
+                    )
+
+                # ---------------------------------------------
+                # Logger
+                # ---------------------------------------------
 
                 converter.log = self.message.emit
 
+                # ---------------------------------------------
+                # Run converter
+                # ---------------------------------------------
+
                 try:
+
                     converter.run()
 
                 except InterruptedError:
-                    self.message.emit("Conversion stopped.")
+
+                    self.message.emit(
+                        "Conversion stopped."
+                    )
+
                     break
 
+            # =================================================
+            # Finished / stopped
+            # =================================================
+
             if self.stop_event.is_set():
-                self.message.emit("Conversion stopped.")
+
+                self.message.emit(
+                    "Conversion stopped."
+                )
 
             else:
-                self.progress.emit(max(1, self.progress_total), max(1, self.progress_total), 0)
-                self.message.emit("All conversions completed.")
+
+                # 100%
+                self.progress.emit(
+                    max(1, self.progress_total),
+                    max(1, self.progress_total),
+                    0.0
+                )
+
+                self.message.emit(
+                    "All conversions completed."
+                )
+
+        # =====================================================
+        # Error
+        # =====================================================
 
         except Exception as exc:
-            self.error.emit(str(exc))
+
+            self.error.emit(
+                str(exc)
+            )
+
+        # =====================================================
+        # Finally
+        # =====================================================
 
         finally:
-            self.finished_signal.emit(changed_folders)
+
+            self.finished_signal.emit(
+                changed_folders
+            )

@@ -2,8 +2,9 @@
 ## Main Window
 
 import os
-import pickle
+import sys
 import time
+import pickle
 
 from pathlib import Path
 from PyQt6.QtCore import Qt, QUrl, QSize, QTimer
@@ -29,6 +30,8 @@ from core.folder_tree import FolderTree
 from core.preset import Preset
 from core.utils import textutils, pathutils, setutils
 from core.custom.CustomQIcon import IconCache
+from core.taskbar import TaskbarProgress
+
 
 from config import (
     VERSION, SAVES_DIR, CACHE_DIR, PROJECT_EXTENSION, ROOT_ROW_HEIGHT,
@@ -101,6 +104,11 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+
+        self.taskbar_progress = None
+
+        if sys.platform == "win32":
+            self.taskbar_progress = TaskbarProgress(int(self.winId()))
 
         # Список объектов корневых папок
         self.folders = []
@@ -2829,6 +2837,9 @@ class MainWindow(QMainWindow):
 
         self._conversion_changed_folders.clear()
 
+        if self.taskbar_progress is not None:
+            self.taskbar_progress.clear()
+
         # Текущая задача закончилась.
         self._active_conversion_job = None
         self.update_conversion_button_states()
@@ -2856,6 +2867,11 @@ class MainWindow(QMainWindow):
         else:
             self.progress.setFormat(f"{done}/{total} • {percent}% • ETA: {textutils.format_eta(eta)}")
 
+        if self.taskbar_progress is not None:
+            self.taskbar_progress.set_progress(
+                done + 1,
+                total + 1,
+            )
 
     def stop_conversion(self):
 
@@ -2870,12 +2886,18 @@ class MainWindow(QMainWindow):
         if self.conversion_worker is not None:
             self.conversion_worker.stop()
 
+        if self.taskbar_progress is not None:
+            self.taskbar_progress.clear()
+
         self.update_conversion_button_states()
 
 
     def conversion_error(self, message):
         self.log_message(f"ERROR: {message}")
         QMessageBox.critical(self, "Conversion error", message)
+
+        if self.taskbar_progress is not None:
+            self.taskbar_progress.error()
 
 
     def conversion_finished(self, changed_folders):
@@ -2886,6 +2908,9 @@ class MainWindow(QMainWindow):
         # Не включаем Convert All здесь.
         # Очередь ещё может содержать задания.
         self.stop_button.setEnabled(False)
+
+        if self.taskbar_progress is not None:
+            self.taskbar_progress.clear()
 
         self._conversion_changed_folders = changed_folders
 
@@ -3036,6 +3061,9 @@ class MainWindow(QMainWindow):
 
         if self.thumbnail_worker and self.thumbnail_worker.isRunning():
             self.thumbnail_worker.terminate()
+
+        if self.taskbar_progress is not None:
+            self.taskbar_progress.close()
 
         if self.confirm_save():
             event.accept()
