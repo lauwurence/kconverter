@@ -57,6 +57,9 @@ class Preset():
             self.sharpen_radius,
             self.sharpen_percent,
             self.sharpen_threshold,
+            self.panorama,
+            self.webp,
+            self.webp_method,
         )
 
     def to_dict(self):

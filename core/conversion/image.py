@@ -239,15 +239,18 @@ class ImageConverter():
         try:
 
             with Image.open(source) as image:
+                webp_method = None
 
                 if self.preset.panorama:
                     is_background = (image.width == 12000) and (image.height == 6000)
 
                     if is_background:
+
                         if self.preset.webp:
                             output_format = "WEBP"
                         else:
                             output_format = "JPEG"
+
                         convert_mode = "RGB"
 
                         width = self.resolution_width
@@ -257,6 +260,7 @@ class ImageConverter():
                         oversample = NON_BACKGROUND_OVERSAMPLE
                         output_format = "WEBP"
                         convert_mode = "RGBA"
+                        webp_method = 6
 
                         width = image.width * (self.resolution_width * oversample / 12000)
                         height = image.height * (self.resolution_height * oversample / 6000)
@@ -266,6 +270,7 @@ class ImageConverter():
                         output_format = "WEBP"
                     else:
                         output_format = "JPEG"
+
                     convert_mode = "RGB"
 
                     if self.resize_mode == "Resolution":
@@ -334,7 +339,7 @@ class ImageConverter():
                             format="WEBP",
                             quality=quality,
                             lossless=False,
-                            method=self.preset.webp_method,
+                            method=webp_method or self.preset.webp_method,
                             icc_profile=icc_profile,
                         )
 
@@ -354,9 +359,9 @@ class ImageConverter():
                         format="WEBP",
                         quality=final_quality,
                         lossless=False,
-                        icc_profile=icc_profile,
+                        method=webp_method or self.preset.webp_method,
                         exif=exif,
-                        method=self.preset.webp_method,
+                        icc_profile=icc_profile,
                     )
 
                 # #################################################################
