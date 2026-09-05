@@ -52,6 +52,7 @@ class AudioConverter:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
         except (OSError, subprocess.CalledProcessError) as exc:
             raise RuntimeError("ffmpeg was not found in PATH.") from exc
@@ -131,6 +132,7 @@ class AudioConverter:
                 command,
                 capture_output=True,
                 text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
 
             if result.returncode == 0:
