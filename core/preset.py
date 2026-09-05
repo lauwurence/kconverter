@@ -488,6 +488,12 @@ class PresetDialog(QDialog):
             settings["resolution_height"],
             settings["downsample"])
 
+        self.pix_fmt = QComboBox()
+        for value in ["yuv420p", "gbrp"]:
+            self.pix_fmt.addItem(value, value)
+        self.pix_fmt.setCurrentIndex(self.pix_fmt.findData(settings["pix_fmt"]))
+        form.addRow("Pixel format:", self.pix_fmt)
+
         self.cpu_used = QSpinBox()
         self.cpu_used.setRange(0, 8)
         self.cpu_used.setValue(settings["cpu_used"])
@@ -535,7 +541,7 @@ class PresetDialog(QDialog):
         self.sharpen_radius.setSingleStep(0.25)
         self.sharpen_radius.setDecimals(2)
         self.sharpen_radius.setValue(settings["sharpen_radius"])
-        form.addRow("Sharpen Radius:", self.sharpen_radius)
+        form.addRow("Sharpen radius:", self.sharpen_radius)
 
         self.interpolate = QSpinBox()
         self.interpolate.setRange(0, 6)
@@ -569,7 +575,7 @@ class PresetDialog(QDialog):
             "interpolate": self.interpolate.value(),
             "loop": self.loop.isChecked(),
             "reverse": self.reverse.isChecked(),
-            "pix_fmt": "yuv420p",
+            "pix_fmt": self.pix_fmt.currentData(),
             "codec": "libvpx-vp9",
         }
         result["resolution"] = f'{resize["resolution_width"]}x{resize["resolution_height"]}' if resize["resize_mode"] == "Resolution" else "Original"

@@ -6,10 +6,10 @@ import re
 from pathlib import Path
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout,
+    QVBoxLayout, QHBoxLayout, QComboBox,
     QDialog, QDialogButtonBox, QFormLayout,
     QMessageBox, QSpinBox, QDoubleSpinBox, QLabel,
-    QCheckBox, QLineEdit, QPushButton, QFileDialog
+    QCheckBox, QLineEdit, QPushButton, QFileDialog,
 )
 from config import LOCAL_WEBM_FILE, ICON
 
@@ -160,6 +160,13 @@ class LocalWebMDialog(QDialog):
         form.addRow("Speed:", self.speed)
 
         self.resize_controls = ResizeControls(form, s["resize_mode"], s["resolution_width"], s["resolution_height"], s["downsample"])
+
+        self.pix_fmt = QComboBox()
+        for value in ["yuv420p", "gbrp"]:
+            self.pix_fmt.addItem(value, value)
+        self.pix_fmt.setCurrentIndex(self.pix_fmt.findData(s["pix_fmt"]))
+        form.addRow("Pixel format:", self.pix_fmt)
+
         self.cpu_used = QSpinBox()
         self.cpu_used.setRange(0, 8)
         self.cpu_used.setValue(s["cpu_used"])
@@ -244,7 +251,7 @@ class LocalWebMDialog(QDialog):
             "interpolate": self.interpolate.value(),
             "loop": self.loop.isChecked(),
             "reverse": self.reverse.isChecked(),
-            "pix_fmt": "yuv420p",
+            "pix_fmt": self.pix_fmt.currentData(),
             "codec": "libvpx-vp9",
         }
         result["resolution"] = f'{resize["resolution_width"]}x{resize["resolution_height"]}' if resize["resize_mode"] == "Resolution" else "Original"
