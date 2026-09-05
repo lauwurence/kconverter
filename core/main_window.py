@@ -920,7 +920,7 @@ class MainWindow(QMainWindow):
                 webm_output = None
 
                 if preset.output_folder.strip():
-                    webm_output = WebMConverter(folder, preset, local).get_output_file()
+                    webm_output = WebMConverter(folder, preset, local, source_root=settings.source_folder).get_output_file()
 
                 if webm_output is not None and webm_output.is_file():
                     webm_size = webm_output.stat().st_size
@@ -1286,14 +1286,14 @@ class MainWindow(QMainWindow):
                 return
 
             try:
-                path.unlink()
+                path.unlink(missing_ok=True)
+
+                if path.suffix.lower() == ".webm":
+                    path.with_suffix(".jpg").unlink(missing_ok=True)
+                    path.with_suffix(".webp").unlink(missing_ok=True)
 
             except OSError as exc:
-                QMessageBox.critical(
-                    self,
-                    "Delete error",
-                    str(exc),
-                )
+                QMessageBox.critical(self, "Delete error", str(exc))
                 return
 
             # Файл удалён. Теперь обновляем именно тот
@@ -2191,7 +2191,8 @@ class MainWindow(QMainWindow):
             output = WebMConverter(
                 folder,
                 preset,
-                local
+                local,
+                source_root=settings.source_folder
             ).get_output_file()
 
             if output.exists():

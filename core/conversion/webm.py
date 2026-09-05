@@ -10,10 +10,11 @@ import ffmpeg
 from datetime import datetime
 from threading import Event
 from pathlib import Path
+from math import ceil
 
 from PIL import Image, ImageCms, ImageEnhance, ImageFilter
 
-from config import WEBM_CACHE_FILE, MINTERPOLATE
+from config import WEBM_CACHE_FILE, MINTERPOLATE, RESAMPLE, PROFILE_SRGB
 
 from ..local_webm import normalize_webm_settings
 from ..utils import textutils
@@ -23,10 +24,6 @@ class WebMConverter():
 
     IMAGE_EXTENSIONS = {".jpg", ".png", ".webp"}
 
-    PROFILE_SRGB = ImageCms.ImageCmsProfile(
-        ImageCms.createProfile("sRGB")
-    ).tobytes()
-
     PREVIEW_QUALITY = 95
 
     EXIF_DATA = {
@@ -35,8 +32,21 @@ class WebMConverter():
     }
 
 
-    def __init__(self, folder, preset, local_settings=None, stop_event=None, progress_callback=None):
+    def __init__(
+        self,
+        folder,
+        preset,
+        local_settings=None,
+        stop_event=None,
+        progress_callback=None,
+        source_root=None,
+    ):
         self.folder = Path(folder).resolve()
+        self.source_root = (
+            Path(source_root).resolve()
+            if source_root
+            else self.folder
+        )
         self.preset = preset
         self.settings = normalize_webm_settings(preset.webm)
 
@@ -78,11 +88,25 @@ class WebMConverter():
 
 
     def get_output_file(self):
-        return self.output_folder / f"{self.folder.name}{self.preset.suffix}.webm"
+        try:
+            relative = self.folder.relative_to(self.source_root)
+        except ValueError:
+            relative = Path(self.folder.name)
+
+        output_folder = self.output_folder / relative.parent
+
+        return output_folder / f"{self.folder.name}{self.preset.suffix}.webm"
 
 
     def get_preview_file(self):
-        return self.output_folder / f"{self.folder.name}{self.preset.suffix}.jpg"
+        try:
+            relative = self.folder.relative_to(self.source_root)
+        except ValueError:
+            relative = Path(self.folder.name)
+
+        output_folder = self.output_folder / relative.parent
+
+        return output_folder / f"{self.folder.name}{self.preset.suffix}.jpg"
 
 
     def get_cache_file(self):
@@ -222,14 +246,17 @@ class WebMConverter():
         resolution = self.resolution()
         sharpen = int(self.settings["sharpen"])
         sharpen_radius = float(self.settings["sharpen_radius"])
+        downsample = float(self.settings["downsample"])
 
         with Image.open(image) as img:
 
             if resolution is None:
-                width = img.width
-                height = img.height
+                width = img.width / downsample
+                height = img.height / downsample
             else:
                 width, height = resolution
+
+            img.thumbnail((ceil(width), ceil(height)), resample=RESAMPLE, reducing_gap=None)
 
             if sharpen and sharpen_radius:
                 img = img.filter(
@@ -240,15 +267,7 @@ class WebMConverter():
                     )
                 )
 
-            img.thumbnail(
-                (width, height),
-                resample=Image.Resampling.LANCZOS,
-            )
-
-            icc_profile = img.info.get(
-                "icc_profile",
-                self.PROFILE_SRGB,
-            )
+            icc_profile = img.info.get("icc_profile", PROFILE_SRGB)
 
             exif = img.getexif()
 
@@ -405,7 +424,10 @@ class WebMConverter():
         if self.progress_callback:
             self.progress_callback(0, 1)
 
-        self.output_folder.mkdir(parents=True, exist_ok=True)
+        self.get_output_file().parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
         should_convert, reason = self.needs_conversion(images)
 

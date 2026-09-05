@@ -153,7 +153,8 @@ class ConversionWorker(QThread):
                         preset,
                         local_settings,
                         self.stop_event,
-                        self.add_progress)
+                        self.add_progress,
+                        source_root=settings.source_folder)
 
                 converter.log = self.message.emit
 
