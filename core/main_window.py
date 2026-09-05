@@ -920,7 +920,7 @@ class MainWindow(QMainWindow):
                     open_button.setFixedWidth(25)
                     open_button.setFixedHeight(25)
 
-                    open_button.clicked.connect(lambda checked=False, s=settings, p=preset, f=Path(folder): self.open_conversion_result(s, p, f))
+                    open_button.clicked.connect(lambda checked=False, s=settings, p=preset, f=Path(folder): self.open_conversion_result(s, p, f, preview=True))
                     # open_button.setEnabled(bool(preset.output_folder))
                     layout.addWidget(open_button)
 
@@ -1012,7 +1012,7 @@ class MainWindow(QMainWindow):
                             s=settings,
                             p=preset,
                             f=Path(folder):
-                            self.open_conversion_result(s, p, f)
+                            self.open_conversion_result(s, p, f, preview=False)
                     )
 
                     webm_button.setContextMenuPolicy(
@@ -2235,7 +2235,7 @@ class MainWindow(QMainWindow):
         )
 
 
-    def open_conversion_result(self, settings, preset, folder):
+    def open_conversion_result(self, settings, preset, folder, preview=False):
         folder = Path(folder).resolve()
 
         if settings.mode == "Images":
@@ -2276,7 +2276,10 @@ class MainWindow(QMainWindow):
                 source_root=settings.source_folder
             )
 
-            output = converter.get_preview_file()
+            if preview:
+                output = converter.get_preview_file()
+            else:
+                output = converter.get_output_file()
 
             if output.exists():
                 self.open_file(output)
