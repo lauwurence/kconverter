@@ -339,7 +339,8 @@ class ImageConverter():
                             format="WEBP",
                             quality=quality,
                             lossless=False,
-                            method=webp_method or self.preset.webp_method,
+                            # method=webp_method or self.preset.webp_method,
+                            method=4,
                             icc_profile=icc_profile,
                         )
 
@@ -469,7 +470,7 @@ class ImageConverter():
         # PIL освобождает GIL на тяжёлых операциях resize/save,
         # поэтому несколько worker'ов хорошо загружают CPU.
         cpu_count = os.cpu_count() or 1
-        max_workers = max(2, int(cpu_count * 0.8))
+        max_workers = max(2, min(6, cpu_count))
 
         # Сначала быстро помечаем уже готовые файлы.
         tasks = []

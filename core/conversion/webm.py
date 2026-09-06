@@ -12,7 +12,7 @@ from threading import Event
 from pathlib import Path
 from math import ceil
 
-from PIL import Image, ImageCms, ImageEnhance, ImageFilter
+from PIL import Image, ImageFilter
 
 from config import WEBM_CACHE_FILE, MINTERPOLATE, RESAMPLE, PROFILE_SRGB
 
@@ -318,7 +318,7 @@ class WebMConverter():
         return concat_file
 
 
-    def build_filters(self):
+    def build_filters(self, do_loop=False, duration=None, output_frame_duration=None):
         settings = self.settings
         input_fps = float(settings["input_fps"])
         output_fps = float(settings["output_fps"])
@@ -366,6 +366,12 @@ class WebMConverter():
                 f"luma_msize_x={sharpen_radius}:"
                 f"luma_msize_y={sharpen_radius}:"
                 f"luma_amount={sharpen}"
+            )
+
+        # Loop Trom
+        if do_loop:
+            filters.append(
+                f"trim=start={output_frame_duration:.12f}:end={duration - output_frame_duration:.12f}"
             )
 
         return filters
@@ -434,18 +440,12 @@ class WebMConverter():
         if self.progress_callback:
             self.progress_callback(0, 1)
 
-        self.get_output_file().parent.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
+        self.get_output_file().parent.mkdir(parents=True, exist_ok=True)
 
         should_convert, reason = self.needs_conversion(images)
 
         if not should_convert:
-            self.log(
-                f"WebM skipped: {self.folder.name} "
-                f"(frames and settings unchanged)"
-            )
+            self.log(f"WebM skipped: {self.folder.name} (frames and settings unchanged)")
 
             if self.progress_callback:
                 self.progress_callback(1, 1)
@@ -456,29 +456,25 @@ class WebMConverter():
 
         settings = self.settings
 
+        effective_fps = float(settings["input_fps"]) * float(settings["speed"])
+        output_fps = float(settings["output_fps"])
+        output_frame_duration = 1.0 / output_fps
+        duration = len(images) / effective_fps
+        do_loop = bool(settings["loop"]) and (int(settings["interpolate"]) != 0) and (effective_fps < output_fps)
+
         # -------------------------------------------------------------------------
-        # Preview
+        # Loop
         #
-        # Determine the first frame of the resulting WebM BEFORE reversing
-        # the image list.
-        #
-        # Normal:
-        #     001 -> 002 -> 003
-        #     preview = 001
-        #
-        # Reverse:
-        #     003 -> 002 -> 001
-        #     preview = 003
+        # Add the last frame before the sequence and the first frame after it.
+        # The trim filter below removes those two helper frames after temporal
+        # processing, leaving the original sequence duration while allowing
+        # interpolation to generate smooth transitions at both ends.
         # -------------------------------------------------------------------------
 
-        preview_frame = images[-1] if settings["reverse"] else images[0]
-        preview = self.get_preview_file()
-
-        # Save preview BEFORE WebM conversion.
-        self.save_preview(
-            preview_frame,
-            preview,
-        )
+        if do_loop:
+            first_frame = images[0]
+            last_frame = images[-1]
+            images = [last_frame] + images + [first_frame]
 
         # -------------------------------------------------------------------------
         # Reverse
@@ -488,13 +484,34 @@ class WebMConverter():
             images.reverse()
 
         # -------------------------------------------------------------------------
+        # Preview
+        # -------------------------------------------------------------------------
+
+        if do_loop:
+            preview_frame = images[1]
+        else:
+            preview_frame = images[0]
+
+        preview = self.get_preview_file()
+
+        # Save preview BEFORE WebM conversion.
+        self.save_preview(
+            preview_frame,
+            preview,
+        )
+
+        # -------------------------------------------------------------------------
         # Concat
         # -------------------------------------------------------------------------
 
         concat_file = self.create_concat_file(images)
 
         output = self.get_output_file()
-        filters = self.build_filters()
+        filters = self.build_filters(
+            do_loop=do_loop,
+            duration=duration,
+            output_frame_duration=output_frame_duration,
+        )
 
         input_stream = ffmpeg.input(
             str(concat_file),
@@ -529,9 +546,6 @@ class WebMConverter():
         if filters:
             params["vf"] = ",".join(filters)
 
-        if settings["loop"]:
-            params["loop"] = 0
-
         # -------------------------------------------------------------------------
         # Build command
         # -------------------------------------------------------------------------
@@ -554,20 +568,11 @@ class WebMConverter():
         self.log(f"Frames: {len(images)}")
 
         if settings["resize_mode"] == "Resolution":
-            self.log(
-                f"Resolution: "
-                f"{settings['resolution_width']}x"
-                f"{settings['resolution_height']}"
-            )
+            self.log(f"Resolution: {settings['resolution_width']}x{settings['resolution_height']}")
         else:
-            self.log(
-                f"Downsample: {settings['downsample']}x"
-            )
+            self.log(f"Downsample: {settings['downsample']}x")
 
-        self.log(
-            f"FPS: {settings['input_fps']} -> "
-            f"{settings['output_fps']}"
-        )
+        self.log(f"FPS: {settings['input_fps']} -> {settings['output_fps']}")
 
         self.log(f"CRF: {settings['crf']}")
 
