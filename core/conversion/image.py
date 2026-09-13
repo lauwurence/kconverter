@@ -15,13 +15,20 @@ from math import ceil
 from config import PROFILE_SRGB, CACHE_DIR, IMAGE_CACHE_FILE, RESAMPLE, EXIF_DATA
 from ..utils import textutils
 
-NON_BACKGROUND_OVERSAMPLE = 1.25
+NON_BACKGROUND_OVERSAMPLES = {
+    '_SQ' : .25,
+    '_LQ' : .5,
+    '_MQ' : .75,
+    '_HQ' : 1.0,
+    ""  : 1.25,
+}
 
+# PROBABLE_SUFFIXES = [ (f"@{o}.webp" if o != 1.0 else ".webp") for o in NON_BACKGROUND_OVERSAMPLES.values() ]
 
 class ImageConverter():
 
     INPUT_SUFFIXES = {".png"}
-    PROBABLE_SUFFIXES = {f"@{NON_BACKGROUND_OVERSAMPLE}.webp"}
+
     REGEX_NUMBER = re.compile(r".*?(\d*)_(\d*)")
     REGEX_QUALITY = re.compile(r"\s*(\d*)%")
 
@@ -133,8 +140,24 @@ class ImageConverter():
         if self.preset.panorama:
             output = self.output / relative_folder / output_name
 
-            for suffix in self.PROBABLE_SUFFIXES:
-                path = output.parent / f'{output.name}{suffix}'
+            for s, o in NON_BACKGROUND_OVERSAMPLES.items():
+                stem = output.stem
+
+                if s and not stem.endswith(s):
+                    continue
+
+                if o != 1.0:
+                    suffix = f'@{o}.suffix'
+                    if s: stem = stem[:-len(s)]
+                else:
+                    suffix = ".suffix"
+
+                path = output.parent / f'{stem}{suffix}'
+
+                if self.preset.webp:
+                    path = path.with_suffix(".webp")
+                else:
+                    path = path.with_suffix(".jpg")
 
                 if path.exists():
                     return path
@@ -189,9 +212,25 @@ class ImageConverter():
 
                     if is_background:
                         output_name = Path(output_name).with_suffix(suffix).name
+
                     else:
                         output_name = Path(output_name).with_suffix(".webp")
-                        output_name = output_name.with_stem(output_name.stem + f"@{NON_BACKGROUND_OVERSAMPLE}").name
+                        stem = output_name.stem
+
+                        for s, o in NON_BACKGROUND_OVERSAMPLES.items():
+
+                            if s and not stem.endswith(s):
+                                continue
+
+                            if o != 1.0:
+                                suffix = f'@{o}'
+                                if s: stem = stem[:-len(s)]
+                            else:
+                                suffix = ""
+
+                            break
+
+                        output_name = output_name.with_stem(stem + suffix).name
 
                 else:
                     output_name = Path(output_name).with_suffix(suffix).name
@@ -257,7 +296,16 @@ class ImageConverter():
                         height = self.resolution_height
 
                     else:
-                        oversample = NON_BACKGROUND_OVERSAMPLE
+                        stem = source.stem
+
+                        for s, o in NON_BACKGROUND_OVERSAMPLES.items():
+
+                            if s and not stem.endswith(s):
+                                continue
+
+                            oversample = o
+                            break
+
                         output_format = "WEBP"
                         convert_mode = "RGBA"
                         webp_method = 6
