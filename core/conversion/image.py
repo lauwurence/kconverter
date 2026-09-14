@@ -608,11 +608,11 @@ class ImageConverter():
                 continue
 
             if result.get("cached"):
-                output = result["output"]
-                self.log(
-                    f"{index}/{self.files_total}: "
-                    f"{output} | cached"
-                )
+                # output = result["output"]
+                # self.log(
+                #     f"{index}/{self.files_total}: "
+                #     f"{output} | cached"
+                # )
                 continue
 
             if result["success"]:
