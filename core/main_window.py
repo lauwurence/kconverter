@@ -7,7 +7,7 @@ import time
 import pickle
 
 from pathlib import Path
-from PyQt6.QtCore import Qt, QUrl, QSize, QTimer
+from PyQt6.QtCore import Qt, QUrl, QSize, QTimer, QSettings
 from PyQt6.QtGui import QShortcut, QKeySequence, QIcon, QDesktopServices, QFont, QPixmap
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout,
@@ -111,6 +111,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        self.qsettings = QSettings("keyclap", "kConverter")
+
         self.taskbar_progress = None
 
         if sys.platform == "win32":
@@ -160,6 +162,16 @@ class MainWindow(QMainWindow):
         self.rebuild_folders()
 
         self.tree.itemExpanded.connect(self._on_item_expanded)
+
+        # Restore window settings
+        geometry = self.qsettings.value("window/geometry")
+        state = self.qsettings.value("window/state")
+
+        if geometry:
+            self.restoreGeometry(geometry)
+
+        if state:
+            self.restoreState(state)
 
 
     def get_item(self, path=None):
@@ -489,16 +501,38 @@ class MainWindow(QMainWindow):
 
 
     def setup_menu(self):
+
         file_menu = self.menuBar().addMenu("File")      # type: ignore
-        save = file_menu.addAction("Save Project")      # type: ignore
-        save_as = file_menu.addAction("Save Project As...")     # type: ignore
+
+        save = file_menu.addAction("Save")      # type: ignore
+        save.setIcon(QIcon("icons/save_project.svg"))
+
+        save_as = file_menu.addAction("Save As...")     # type: ignore
+        save_as.setIcon(QIcon("icons/save_project.svg"))
+
         file_menu.addSeparator()        # type: ignore
-        load = file_menu.addAction("Load Project...")       # type: ignore
+
+        load = file_menu.addAction("Open...")       # type: ignore
+        load.setIcon(QIcon("icons/folder.svg"))
+
         file_menu.addSeparator()        # type: ignore
-        exit_action = file_menu.addAction("Exit")       # type: ignore
+
         save.triggered.connect(self.save_project)       # type: ignore
         save_as.triggered.connect(self.save_project_as)     # type: ignore
         load.triggered.connect(self.load_project)       # type: ignore
+
+        file_menu.addSeparator()        # type: ignore
+
+        projects = list(SAVES_DIR.glob(f"*{PROJECT_EXTENSION}"))
+
+        for project in projects:
+            load = file_menu.addAction(f'{project.name}')       # type: ignore
+            load.setIcon(QIcon("icons/project.svg"))
+            load.triggered.connect(lambda checked=False, fn=str(project.resolve()): self.read_project(fn))
+
+        file_menu.addSeparator()        # type: ignore
+
+        exit_action = file_menu.addAction("Exit")       # type: ignore
         exit_action.triggered.connect(self.close)       # type: ignore
 
 
@@ -2989,6 +3023,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Conversion running", "Stop the conversion before closing.")
             event.ignore()
             return
+
+        self.qsettings.setValue("window/geometry", self.saveGeometry())
+        self.qsettings.setValue("window/state", self.saveState())
+
+        super().closeEvent(event)
 
         if self.rescan_worker and self.rescan_worker.isRunning():
             self.rescan_worker.terminate()
