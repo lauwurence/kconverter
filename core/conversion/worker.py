@@ -19,12 +19,8 @@ class ConversionWorker(QThread):
     # ========================================================
 
     message = pyqtSignal(str)
-
     error = pyqtSignal(str)
-
     finished_signal = pyqtSignal(object)
-
-    # done, total, eta
     progress = pyqtSignal(int, int, float)
 
     # ========================================================
@@ -37,25 +33,15 @@ class ConversionWorker(QThread):
         self.setObjectName("ConversionWorker")
 
         self.jobs = jobs
-
         self.stop_event = Event()
 
-        # Progress
         self.progress_done = 0
         self.progress_total = 0
-
         self.progress_start = monotonic()
-
         self.progress_lock = Lock()
 
-        # Последние измерения:
-        #
-        # (timestamp, completed)
-        #
         self.progress_samples = deque(maxlen=3)
-
         self.last_mode = None
-
         self.eta = 0.0
 
     # ========================================================
@@ -93,51 +79,36 @@ class ConversionWorker(QThread):
             current_done = self.progress_done
             current_total = self.progress_total
 
-            self.progress_samples.append(
-                (
-                    now,
-                    current_done
-                )
-            )
+            self.progress_samples.append((now, current_done))
 
             # ------------------------------------------------
             # ETA
             # ------------------------------------------------
 
             if len(self.progress_samples) < 2:
-
                 eta = 0.0
 
             else:
-
                 old_time, old_done = self.progress_samples[0]
 
                 dt = now - old_time
                 dd = current_done - old_done
 
                 if dt <= 0 or dd <= 0:
-
                     eta = self.eta
 
                 else:
-
                     # Units per second
                     speed = dd / dt
 
-                    remaining = max(
-                        0,
-                        current_total - current_done
-                    )
-
+                    remaining = max(0, current_total - current_done)
                     new_eta = remaining / speed
 
                     # Smooth ETA
                     if self.eta <= 0:
-
                         eta = new_eta
 
                     else:
-
                         eta = (
                             self.eta * 0.7
                             +
@@ -161,7 +132,6 @@ class ConversionWorker(QThread):
     # ========================================================
 
     def run(self):
-
         changed_folders = set()
 
         try:
@@ -171,17 +141,14 @@ class ConversionWorker(QThread):
             # =================================================
 
             total_jobs = len(self.jobs)
-
             planned_units = []
 
             for settings, preset, folder, local_settings in self.jobs:
 
                 if settings.mode == "Images":
-
                     count = 0
 
                     try:
-
                         root = Path(folder)
 
                         for base, dirs, names in os.walk(root):
@@ -194,54 +161,35 @@ class ConversionWorker(QThread):
                             )
 
                     except OSError:
-
                         count = 0
 
-                    planned_units.append(
-                        max(1, count)
-                    )
+                    planned_units.append(max(1, count))
 
                 else:
-
                     planned_units.append(1)
 
             # =================================================
             # Initialize progress
             # =================================================
 
-            self.progress_total = sum(
-                planned_units
-            )
-
+            self.progress_total = sum(planned_units)
             self.progress_done = 0
-
             self.progress_start = monotonic()
-
             self.progress_samples.clear()
-
             self.eta = 0.0
-
-            self.progress.emit(
-                0,
-                max(1, self.progress_total),
-                0.0
-            )
+            self.progress.emit(0, max(1, self.progress_total), 0.0)
 
             # =================================================
             # Process jobs
             # =================================================
 
-            for index, job in enumerate(
-                self.jobs,
-                1
-            ):
+            for index, job in enumerate(self.jobs, 1):
 
                 # ---------------------------------------------
                 # Stop requested?
                 # ---------------------------------------------
 
                 if self.stop_event.is_set():
-
                     break
 
                 # ---------------------------------------------
@@ -250,11 +198,7 @@ class ConversionWorker(QThread):
 
                 settings, preset, folder, local_settings = job
 
-                changed_folders.add(
-                    str(
-                        Path(folder).resolve()
-                    )
-                )
+                changed_folders.add(str(Path(folder).resolve()))
 
                 self.message.emit(
                     f"[{index}/{total_jobs}] "
@@ -268,20 +212,12 @@ class ConversionWorker(QThread):
                 # ---------------------------------------------
 
                 if self.last_mode != settings.mode:
-
                     self.last_mode = settings.mode
 
                     if settings.mode == "Images":
-
-                        self.progress_samples = deque(
-                            maxlen=100
-                        )
-
+                        self.progress_samples = deque(maxlen=100)
                     else:
-
-                        self.progress_samples = deque(
-                            maxlen=3
-                        )
+                        self.progress_samples = deque(maxlen=3)
 
                     self.eta = 0.0
 
@@ -290,7 +226,6 @@ class ConversionWorker(QThread):
                 # ---------------------------------------------
 
                 if settings.mode == "Images":
-
                     converter = ImageConverter(
                         folder,
                         preset,
@@ -300,7 +235,6 @@ class ConversionWorker(QThread):
                     )
 
                 else:
-
                     converter = WebMConverter(
                         folder,
                         preset,
@@ -321,15 +255,10 @@ class ConversionWorker(QThread):
                 # ---------------------------------------------
 
                 try:
-
                     converter.run()
 
                 except InterruptedError:
-
-                    self.message.emit(
-                        "Conversion stopped."
-                    )
-
+                    self.message.emit("Conversion stopped.")
                     break
 
             # =================================================
@@ -337,10 +266,7 @@ class ConversionWorker(QThread):
             # =================================================
 
             if self.stop_event.is_set():
-
-                self.message.emit(
-                    "Conversion stopped."
-                )
+                self.message.emit("Conversion stopped.")
 
             else:
 
@@ -351,26 +277,18 @@ class ConversionWorker(QThread):
                     0.0
                 )
 
-                self.message.emit(
-                    "All conversions completed."
-                )
+                self.message.emit("All conversions completed.")
 
         # =====================================================
         # Error
         # =====================================================
 
         except Exception as exc:
-
-            self.error.emit(
-                str(exc)
-            )
+            self.error.emit(str(exc))
 
         # =====================================================
         # Finally
         # =====================================================
 
         finally:
-
-            self.finished_signal.emit(
-                changed_folders
-            )
+            self.finished_signal.emit(changed_folders)

@@ -133,6 +133,7 @@ class MainWindow(QMainWindow):
 
         self._conversion_changed_folders = set()
         self._conversion_queue = []
+        self._conversion_rescan_pending = False
         self._active_conversion_job = None
         self._conversion_stop_requested = False
 
@@ -869,7 +870,7 @@ class MainWindow(QMainWindow):
                 if not root:
                     local_button = QToolButton()
 
-                    has_local = self.get_local_preset(folder, preset) is not None
+                    has_local = self.get_local_webm_preset(folder, preset) is not None
                     local_button.setIcon(QIcon("icons/settings_local.svg" if has_local else "icons/settings.svg"))
                     local_button.setToolTip("Local WebM settings" + (" (override active)" if has_local else ""))
                     local_button.setFixedSize(27, 25)
@@ -893,7 +894,6 @@ class MainWindow(QMainWindow):
 
                     local_button.setIcon(QIcon("icons/settings_local.svg" if has_local else "icons/settings.svg"))
                     local_button.setToolTip("Local Image settings" + (" (override active)" if has_local else ""))
-
                     local_button.setFixedSize(27, 25)
 
                     local_button.clicked.connect(
@@ -1007,7 +1007,7 @@ class MainWindow(QMainWindow):
             else:
 
                 if not root:
-                    local = self.get_local_preset(folder, preset)
+                    local = self.get_local_webm_preset(folder, preset)
 
                     converter = WebMConverter(folder, preset, local, source_root=settings.source_folder)
 
@@ -1044,7 +1044,7 @@ class MainWindow(QMainWindow):
                     webm_folders = self.get_webm_folders(Path(folder))
 
                     for webm_folder in webm_folders:
-                        local = self.get_local_preset(webm_folder, preset)
+                        local = self.get_local_webm_preset(webm_folder, preset)
 
                         converter = WebMConverter(webm_folder, preset, local, source_root=settings.source_folder)
 
@@ -1525,42 +1525,53 @@ class MainWindow(QMainWindow):
 
         outdated = False
 
-        for source in pathutils.iter_files(folder, suffix=".png"):
+        image_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff"}
 
-            try:
-                output = converter.get_output_file(source)
+        folders = [
+            p for p in folder.rglob("*") if p.is_dir()
+            and not any(x.is_dir() for x in p.iterdir())
+            and any(x.is_file() and x.suffix.lower() in image_exts for x in p.iterdir())
 
-                # Нет результата
-                if not output.exists():
+        ]
+
+        for subfolder in [ folder ] + folders:
+
+            for source in pathutils.iter_files(subfolder, suffix=".png"):
+
+                try:
+                    output = converter.get_output_file(source)
+
+                    # Нет результата
+                    if not output.exists():
+                        outdated = True
+                        break
+
+                    source_stat = source.stat()
+
+                    relative_file = source.relative_to(converter.source_root).as_posix()
+
+                    expected_cache = (
+                        int(source_stat.st_mtime),
+                        effective_preset.cache_key,
+                    )
+
+                    actual_cache = converter.cache.get(relative_file)
+
+                    # Настройки пресета изменились
+                    if actual_cache != expected_cache:
+                        outdated = True
+                        break
+
+                    # Дополнительная проверка времени
+                    output_stat = output.stat()
+
+                    if output_stat.st_mtime_ns < source_stat.st_mtime_ns:
+                        outdated = True
+                        break
+
+                except OSError:
                     outdated = True
                     break
-
-                source_stat = source.stat()
-
-                relative_file = source.relative_to(converter.source_root).as_posix()
-
-                expected_cache = (
-                    int(source_stat.st_mtime),
-                    effective_preset.cache_key,
-                )
-
-                actual_cache = converter.cache.get(relative_file)
-
-                # Настройки пресета изменились
-                if actual_cache != expected_cache:
-                    outdated = True
-                    break
-
-                # Дополнительная проверка времени
-                output_stat = output.stat()
-
-                if output_stat.st_mtime_ns < source_stat.st_mtime_ns:
-                    outdated = True
-                    break
-
-            except OSError:
-                outdated = True
-                break
 
         if key not in self._folder_status_cache:
             self._folder_status_cache[key] = {}
@@ -2064,7 +2075,7 @@ class MainWindow(QMainWindow):
         self.tree.setItemWidget(item, 1, self.create_folder_status(settings, folder, root=is_root))
 
 
-    def get_local_preset(self, folder, preset):
+    def get_local_webm_preset(self, folder, preset):
         data = setutils.read_local_webm_settings(folder)
         return data.get(preset.name)
 
@@ -2153,7 +2164,7 @@ class MainWindow(QMainWindow):
                 )
 
         else:
-            local = self.get_local_preset(folder, preset)
+            local = self.get_local_webm_preset(folder, preset)
 
             converter = WebMConverter(folder, preset, local, source_root=settings.source_folder)
 
@@ -2457,19 +2468,17 @@ class MainWindow(QMainWindow):
 
         self.update_conversion_button_states()
 
-        # После Stop никогда не продолжаем очередь.
         if self._conversion_stop_requested:
             self._conversion_queue.clear()
             self._active_conversion_job = None
+
             self.convert_all_button.setEnabled(True)
             self.stop_button.setEnabled(False)
+
             return
 
-        if self._conversion_queue and self.conversion_worker is None:
-            QTimer.singleShot(0, self.start_next_conversion)
-        else:
-            # Очередь закончилась.
-            self.convert_all_button.setEnabled(True)
+        self.convert_all_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
 
 
     def rebuild_folders(self):
@@ -2654,29 +2663,34 @@ class MainWindow(QMainWindow):
             )
             return
 
+        folder = Path(folder).resolve()
+
         if settings.mode == "Audio":
-            folder = Path(folder).resolve()
             self.enqueue_conversion((settings, preset, folder, self.get_local_audio_settings(folder, preset)))
-            return
 
-        if settings.mode == "WebM":
-            folders = self.get_webm_folders(Path(folder))
+        elif settings.mode == "WebM":
+            queue_folders = self.get_webm_folders(folder)
 
-            for folder in folders:
-                effective_preset = self.get_local_image_preset(folder, preset, settings)
-
-                self.enqueue_conversion((
-                    settings,
-                    preset,
-                    folder,
-                    self.get_local_preset(folder, preset)))
+            for path in queue_folders:
+                effective_preset = self.get_local_image_preset(path, preset, settings)
+                self.enqueue_conversion((settings, effective_preset, path, None))
 
         else:
-            folder = Path(folder).resolve()
+            image_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff"}
 
-            effective_preset = self.get_local_image_preset(folder, preset, settings)
+            queue_folders = [
+                p for p in folder.rglob("*") if p.is_dir()
+                and not any(x.is_dir() for x in p.iterdir())
+                and any(x.is_file() and x.suffix.lower() in image_exts for x in p.iterdir())
+            ]
 
-            self.enqueue_conversion((settings, effective_preset, folder, None))
+            for path in [folder] + queue_folders:
+                effective_preset = self.get_local_image_preset(path, preset, settings)
+
+                if not self.folder_has_outdated_images(settings, effective_preset, path):
+                    continue
+
+                self.enqueue_conversion((settings, effective_preset, path, None))
 
 
     def start_folder_all_conversions(self, settings, folder):
@@ -2692,7 +2706,7 @@ class MainWindow(QMainWindow):
 
             if settings.mode == "WebM":
                 job_preset = preset
-                local = self.get_local_preset(folder, preset)
+                local = self.get_local_webm_preset(folder, preset)
 
             elif settings.mode == "Audio":
                 job_preset = preset
@@ -2737,7 +2751,7 @@ class MainWindow(QMainWindow):
 
                     if settings.mode == "WebM":
                         job_preset = preset
-                        local = self.get_local_preset(folder, preset)
+                        local = self.get_local_webm_preset(folder, preset)
 
                     elif settings.mode == "Audio":
                         job_preset = preset
@@ -2816,22 +2830,38 @@ class MainWindow(QMainWindow):
         if worker:
             worker.deleteLater()
 
-        changed_folders = { Path(folder).resolve() for folder in self._conversion_changed_folders }
+        changed_folders = {
+            Path(folder).resolve()
+            for folder in self._conversion_changed_folders
+        }
 
         self._conversion_changed_folders.clear()
+
+        if changed_folders:
+            self._conversion_rescan_pending = True
 
         if self.taskbar_progress is not None:
             self.taskbar_progress.clear()
 
-        # Текущая задача закончилась.
         self._active_conversion_job = None
         self.update_conversion_button_states()
 
-        if changed_folders:
-            self._refresh_folder_status_widgets(changed_folders)
-            self.rescan(changed_folders)
+        # Следующий job запускаем сразу.
+        if not self._conversion_stop_requested and self._conversion_queue:
+            QTimer.singleShot(0, self.start_next_conversion)
+            return
+
+        # Только здесь очередь закончилась.
+        if self._conversion_rescan_pending:
+            self._conversion_rescan_pending = False
+
+            if changed_folders:
+                self.rescan(changed_folders)
+                self.rebuild_folders()
+
         else:
-            self.rescan()
+            self.convert_all_button.setEnabled(True)
+            self.stop_button.setEnabled(False)
 
 
     def update_progress(self, done, total, eta):
@@ -2856,16 +2886,22 @@ class MainWindow(QMainWindow):
 
     def stop_conversion(self):
 
-        # Отменяем не только текущую конвертацию,
-        # но и все задания, ожидающие в очереди.
+        # Больше не запускаем следующие jobs.
         self._conversion_stop_requested = True
         self._conversion_queue.clear()
+
+        # После остановки обязательно сделаем один rescan.
+        self._conversion_rescan_pending = True
 
         self.log_message("Stopping conversion queue...")
         self.stop_button.setEnabled(False)
 
         if self.conversion_worker is not None:
             self.conversion_worker.stop()
+        else:
+            # На случай, если worker уже успел завершиться.
+            self._conversion_rescan_pending = False
+            self.rescan()
 
         if self.taskbar_progress is not None:
             self.taskbar_progress.clear()
@@ -2882,16 +2918,15 @@ class MainWindow(QMainWindow):
 
 
     def conversion_finished(self, changed_folders):
+
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
         self.progress.setFormat("Done")
 
-        # Не включаем Convert All здесь.
-        # Очередь ещё может содержать задания.
-        self.stop_button.setEnabled(False)
-
         if self.taskbar_progress is not None:
             self.taskbar_progress.clear()
+
+        self.stop_button.setEnabled(False)
 
         self._conversion_changed_folders = changed_folders
 
