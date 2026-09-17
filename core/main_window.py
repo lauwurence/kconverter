@@ -23,7 +23,7 @@ from core.conversion.audio import AudioConversionWorker, SUPPORTED_BITRATES
 from core.local_audio import LocalAudioDialog, AudioAwareSettingsDialog, read_local_audio_settings, write_local_audio_settings
 from core.local_webm import LocalWebMDialog, normalize_webm_settings
 from core.local_image import LocalImageDialog
-from core.folder import FolderSettings
+from core.folder import Settings
 from core.thumbnail import ThumbnailWorker
 from core.rescan import RescanWorker
 from core.folder_tree import FolderTree
@@ -539,7 +539,7 @@ class MainWindow(QMainWindow):
             if folder in existing:
                 continue
 
-            settings = FolderSettings(folder)
+            settings = Settings(folder)
             self.folders.append(settings)
             existing.add(folder)
             added = True
@@ -1454,7 +1454,7 @@ class MainWindow(QMainWindow):
 
         folder = Path(folder).resolve()
 
-        effective_preset = self.get_local_image_preset(folder, preset)
+        effective_preset = self.get_local_image_preset(folder, preset, settings)
 
         if not effective_preset.output_folder.strip():
             return False
@@ -1656,7 +1656,7 @@ class MainWindow(QMainWindow):
 
         folder = Path(folder).resolve()
 
-        effective_preset = self.get_local_image_preset(folder, preset)
+        effective_preset = self.get_local_image_preset(folder, preset, settings)
         key = folder_cache_key(folder, effective_preset)
 
         signature = id(folder)#self._image_folder_signature(folder)
@@ -1710,7 +1710,7 @@ class MainWindow(QMainWindow):
         if settings is None or not preset.output_folder:
             return None
 
-        effective_preset = self.get_local_image_preset(source.parent, preset)
+        effective_preset = self.get_local_image_preset(source.parent, preset, settings)
 
         return ImageConverter(
             settings.source_folder,
@@ -1725,7 +1725,7 @@ class MainWindow(QMainWindow):
         if settings is None:
             return None, "", False
 
-        effective_preset = self.get_local_image_preset(source.parent, preset)
+        effective_preset = self.get_local_image_preset(source.parent, preset, settings)
 
         if not effective_preset.output_folder.strip():
             return None, "", False
@@ -1765,11 +1765,7 @@ class MainWindow(QMainWindow):
         cached = self._file_status_cache.get(key)
 
         if cached is not None and cached["signature"] == signature:
-            return (
-                output,
-                cached["size"],
-                cached["outdated"],
-            )
+            return (output, cached["size"], cached["outdated"])
 
         if output_stat is None:
             size = "-"
@@ -1786,9 +1782,9 @@ class MainWindow(QMainWindow):
             size = textutils.format_size(output_stat.st_size)
 
         self._file_status_cache[key] = {
-            "signature": signature,
-            "size": size,
-            "outdated": outdated,
+            'signature' : signature,
+            'size' : size,
+            'outdated' : outdated,
         }
 
         return output, size, outdated
@@ -1808,33 +1804,88 @@ class MainWindow(QMainWindow):
                 pass
 
 
-    def get_local_image_preset(self, folder, preset):
+    # def get_local_image_preset(self, folder, preset):
+
+    #     if not preset:
+    #         return None
+
+    #     folder = Path(folder).resolve()
+    #     data = setutils.read_local_image_settings(folder)
+
+    #     current = data.get(preset.name)
+
+    #     if not isinstance(current, dict):
+    #         return preset
+
+    #     try:
+    #         local_preset = Preset.from_dict(preset.to_dict())
+    #         enabled = set(current.get('enabled_overrides', getattr(preset, 'enabled_overrides', set())))
+
+    #         for key, value in current.items():
+
+    #             if key in ['name', 'enabled_overrides']:
+    #                 continue
+
+    #             if key not in enabled:
+    #                 continue
+
+    #             if hasattr(local_preset, key):
+    #                 setattr(local_preset, key, value)
+
+    #         local_preset.name = preset.name
+
+    #         return local_preset
+
+    #     except Exception:
+    #         return preset
+
+
+    def get_local_image_preset(self, folder, preset, settings):
 
         if not preset:
             return None
 
         folder = Path(folder).resolve()
-        data = setutils.read_local_image_settings(folder)
-
-        current = data.get(preset.name)
-
-        if not isinstance(current, dict):
-            return preset
+        source_folder = Path(settings.source_folder).resolve()
 
         try:
             local_preset = Preset.from_dict(preset.to_dict())
-            enabled = set(current.get("enabled_overrides", getattr(preset, "enabled_overrides", set())))
 
-            for key, value in current.items():
+            folders = []
+            current_folder = folder
 
-                if key in ["name", "enabled_overrides"]:
+            while True:
+                folders.append(current_folder)
+
+                if current_folder == source_folder:
+                    break
+
+                # source_folder не находится выше folder
+                if source_folder not in current_folder.parents:
+                    break
+
+                current_folder = current_folder.parent
+
+            # source_folder -> ... -> folder
+            for current_folder in reversed(folders):
+                data = setutils.read_local_image_settings(current_folder)
+                current = data.get(preset.name)
+
+                if not isinstance(current, dict):
                     continue
 
-                if key not in enabled:
-                    continue
+                enabled = set(current.get('enabled_overrides', getattr(preset, 'enabled_overrides', set())))
 
-                if hasattr(local_preset, key):
-                    setattr(local_preset, key, value)
+                for key, value in current.items():
+
+                    if key in {'name', 'enabled_overrides'}:
+                        continue
+
+                    if key not in enabled:
+                        continue
+
+                    if hasattr(local_preset, key):
+                        setattr(local_preset, key, value)
 
             local_preset.name = preset.name
 
@@ -1934,39 +1985,54 @@ class MainWindow(QMainWindow):
         data = read_local_audio_settings(folder)
         current = data.get(preset.name)
         default_bitrate = int(getattr(preset, "bitrate", 128))
+
         if not isinstance(current, dict):
             return {"bitrate": default_bitrate}
+
         bitrate = int(current.get("bitrate", default_bitrate))
+
         if bitrate not in SUPPORTED_BITRATES:
             bitrate = default_bitrate
+
         return {"bitrate": bitrate}
+
 
     def has_local_audio_settings(self, folder, preset):
         data = read_local_audio_settings(folder)
         return isinstance(data.get(preset.name), dict)
 
+
     def edit_local_audio(self, settings, preset, folder):
+
         if settings.mode != "Audio":
             return
+
         local_data = read_local_audio_settings(folder)
         current = local_data.get(preset.name)
         bitrate = int(getattr(preset, "bitrate", 128))
+
         if isinstance(current, dict):
             bitrate = int(current.get("bitrate", bitrate))
+
         dialog = LocalAudioDialog(preset.output_folder, preset.name, bitrate, self)
+
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
+
         if dialog.deleted:
             local_data.pop(preset.name, None)
         else:
             local_data[preset.name] = {"bitrate": dialog.bitrate}
+
         try:
             write_local_audio_settings(folder, local_data)
         except Exception as exc:
             QMessageBox.critical(self, "Local settings error", str(exc))
             return
+
         self.mark_dirty()
         self._refresh_local_audio_status(folder)
+
 
     def _refresh_local_audio_status(self, folder):
         folder = Path(folder).resolve()
@@ -2589,7 +2655,7 @@ class MainWindow(QMainWindow):
             folders = self.get_webm_folders(Path(folder))
 
             for folder in folders:
-                effective_preset = self.get_local_image_preset(folder, preset)
+                effective_preset = self.get_local_image_preset(folder, preset, settings)
 
                 self.enqueue_conversion((
                     settings,
@@ -2600,7 +2666,7 @@ class MainWindow(QMainWindow):
         else:
             folder = Path(folder).resolve()
 
-            effective_preset = self.get_local_image_preset(folder, preset)
+            effective_preset = self.get_local_image_preset(folder, preset, settings)
 
             self.enqueue_conversion((settings, effective_preset, folder, None))
 
@@ -2625,7 +2691,7 @@ class MainWindow(QMainWindow):
                 local = self.get_local_audio_settings(folder, preset)
 
             else:
-                job_preset = self.get_local_image_preset(folder, preset)
+                job_preset = self.get_local_image_preset(folder, preset, settings)
                 local = None
 
             jobs.append((settings, job_preset, folder, local))
@@ -2670,7 +2736,7 @@ class MainWindow(QMainWindow):
                         local = self.get_local_audio_settings(folder, preset)
 
                     else:
-                        job_preset = self.get_local_image_preset(folder, preset)
+                        job_preset = self.get_local_image_preset(folder, preset, settings)
                         local = None
 
                     jobs.append((settings, job_preset, folder, local))
@@ -2714,10 +2780,12 @@ class MainWindow(QMainWindow):
 
 
     def start_covnersion_jobs(self, jobs):
+
         if jobs and jobs[0][0].mode == "Audio":
             self.conversion_worker = AudioConversionWorker(jobs)
         else:
             self.conversion_worker = ConversionWorker(jobs)
+
         self.conversion_worker.message.connect(self.log_message)
         self.conversion_worker.error.connect(self.conversion_error)
         self.conversion_worker.progress.connect(self.update_progress)
@@ -2894,7 +2962,7 @@ class MainWindow(QMainWindow):
             self.tree.clear()
 
             for folder_data in data.get("folders", []):
-                settings = FolderSettings.from_dict(folder_data)
+                settings = Settings.from_dict(folder_data)
 
                 if settings.source_folder:
                     self.folders.append(settings)

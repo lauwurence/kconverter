@@ -20,7 +20,28 @@ from random import randint
 
 class Preset():
 
-    def __init__(self, name="New Preset", downscale=1.0, target_size=400, max_quality=95, min_quality=50, output_folder="", suffix="", sharpen_radius=0.5, sharpen_percent=0, sharpen_threshold=0, webm=None, resize_mode="Downsample", resolution_width=0, resolution_height=0, id=None, panorama=False, webp=False, webp_method=4, enabled_overrides=None, bitrate=128):
+    def __init__(self,
+                 name="New Preset",
+                 downscale=1.0,
+                 target_size=400,
+                 max_quality=95,
+                 min_quality=50,
+                 output_folder="",
+                 suffix="",
+                 sharpen_radius=0.5,
+                 sharpen_percent=0,
+                 sharpen_threshold=0,
+                 webm=None,
+                 resize_mode="Downsample",
+                 resolution_width=0,
+                 resolution_height=0,
+                 id=None,
+                 panorama=False,
+                 webp=False,
+                 webp_method=4,
+                 enabled_overrides=None,
+                 bitrate=128):
+
         self.name = name
         self.resize_mode = resize_mode
         self.resolution_width = int(resolution_width)

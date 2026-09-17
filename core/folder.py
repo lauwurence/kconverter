@@ -15,7 +15,7 @@ from .preset import Preset, PresetDialog
 from .local_webm import default_webm_settings, normalize_webm_settings
 
 
-class FolderSettings():
+class Settings():
 
     def __init__(self, source_folder, mode="Images"):
         self.source_folder = str(Path(source_folder).resolve())
@@ -35,7 +35,7 @@ class FolderSettings():
     @classmethod
     def from_dict(cls, data):
         settings = cls(data.get("source_folder", ""), data.get("mode", "Images"))
-        settings.presets = [Preset.from_dict(preset) for preset in data.get("presets", [])]
+        settings.presets = [ Preset.from_dict(preset) for preset in data.get("presets", []) ]
 
         for preset in settings.presets:
             preset.webm = normalize_webm_settings(preset.webm)
