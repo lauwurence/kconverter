@@ -71,7 +71,6 @@ class ConversionWorker(QThread):
         """
 
         with self.progress_lock:
-
             self.progress_done += done
 
             now = monotonic()
@@ -107,13 +106,8 @@ class ConversionWorker(QThread):
                     # Smooth ETA
                     if self.eta <= 0:
                         eta = new_eta
-
                     else:
-                        eta = (
-                            self.eta * 0.7
-                            +
-                            new_eta * 0.3
-                        )
+                        eta = (self.eta * 0.7) + (new_eta * 0.3)
 
                     self.eta = eta
 
@@ -121,11 +115,7 @@ class ConversionWorker(QThread):
             # Emit
             # ------------------------------------------------
 
-            self.progress.emit(
-                current_done,
-                current_total,
-                max(0.0, eta),
-            )
+            self.progress.emit(current_done, current_total, max(0.0, eta))
 
     # ========================================================
     # Run
@@ -143,27 +133,18 @@ class ConversionWorker(QThread):
             total_jobs = len(self.jobs)
             planned_units = []
 
-            for settings, preset, folder, local_settings in self.jobs:
+            for settings, preset, folder, local_preset in self.jobs:
 
                 if settings.mode == "Images":
-                    count = 0
+                    converter = ImageConverter(
+                        folder,
+                        local_preset or preset,
+                        source_root=settings.source_folder
+                    )
 
-                    try:
-                        root = Path(folder)
+                    files, all_files = converter.scan()
 
-                        for base, dirs, names in os.walk(root):
-
-                            count += sum(
-                                1
-                                for name in names
-                                if Path(name).suffix.lower()
-                                in ImageConverter.INPUT_SUFFIXES
-                            )
-
-                    except OSError:
-                        count = 0
-
-                    planned_units.append(max(1, count))
+                    planned_units.append(len(files))
 
                 else:
                     planned_units.append(1)
@@ -196,16 +177,11 @@ class ConversionWorker(QThread):
                 # Job
                 # ---------------------------------------------
 
-                settings, preset, folder, local_settings = job
+                settings, preset, folder, local_preset = job
 
                 changed_folders.add(str(Path(folder).resolve()))
 
-                self.message.emit(
-                    f"[{index}/{total_jobs}] "
-                    f"{settings.mode} | "
-                    f"{preset.name} | "
-                    f"{folder}"
-                )
+                self.message.emit(f"[{index}/{total_jobs}] {settings.mode} | {preset.name} | {folder}")
 
                 # ---------------------------------------------
                 # Mode changed
@@ -238,7 +214,7 @@ class ConversionWorker(QThread):
                     converter = WebMConverter(
                         folder,
                         preset,
-                        local_settings,
+                        local_preset,
                         self.stop_event,
                         self.add_progress,
                         source_root=settings.source_folder
@@ -269,14 +245,8 @@ class ConversionWorker(QThread):
                 self.message.emit("Conversion stopped.")
 
             else:
-
                 # 100%
-                self.progress.emit(
-                    max(1, self.progress_total),
-                    max(1, self.progress_total),
-                    0.0
-                )
-
+                self.progress.emit(max(1, self.progress_total), max(1, self.progress_total), 0.0)
                 self.message.emit("All conversions completed.")
 
         # =====================================================

@@ -52,13 +52,9 @@ class ImageConverter():
         self.cache = {}
         self.output_files = set()
         self.saved_images = 0
-        self.source_sizes = []
-        self.saved_sizes = []
-        self.saved_qualities = []
         self.stop_event = stop_event or Event()
         self.log = print
         self.progress_callback = progress_callback
-        self.completed_results = {}
         self.files_total = 0
 
 
@@ -74,17 +70,24 @@ class ImageConverter():
     def read_cache(self):
 
         try:
-            with open(self.cache_file, "rb") as file:
-                return pickle.load(file)
+            with open(self.cache_file, 'rb') as f:
+                return pickle.load(f)
 
         except Exception:
             return {}
 
 
     def write_cache(self):
+
         self.cache_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.cache_file, "wb") as file:
-            pickle.dump(self.cache, file, protocol=pickle.HIGHEST_PROTOCOL)
+
+        with open(self.cache_file, 'wb') as f:
+            pickle.dump(self.cache, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+    def reload_cache(self):
+        self.cache = self.read_cache()
+
 
     def get_output_name(self, file):
 
@@ -172,6 +175,9 @@ class ImageConverter():
 
 
     def scan(self):
+
+        self.reload_cache()
+
         files = {}
         all_files = []
 
@@ -256,7 +262,7 @@ class ImageConverter():
                     "mod_time": mod_time,
                 }
 
-        self.files_total = len(all_files)
+        self.files_total = len(files)#len(all_files)
 
         return files, all_files
 
@@ -492,8 +498,6 @@ class ImageConverter():
                 "error": str(exc),
             }
 
-        self.completed_results[index] = result
-
         if self.progress_callback:
             self.progress_callback(1, self.files_total)
 
@@ -505,7 +509,6 @@ class ImageConverter():
         start = time()
 
         self.output.mkdir(parents=True, exist_ok=True)
-        self.cache = self.read_cache()
 
         files, all_files = self.scan()
 
@@ -520,117 +523,46 @@ class ImageConverter():
         # Сначала быстро помечаем уже готовые файлы.
         tasks = []
 
-        for index, source in enumerate(all_files, 1):
+        for index, source in enumerate(files.keys(), 1):
 
             if self.stop_event.is_set():
                 break
 
-            if source not in files:
-                self.completed_results[index] = {
-                    "index": index,
-                    "source": source,
-                    "output": self.get_output_file(source),
-                    "width": 0,
-                    "height": 0,
-                    "quality": 0,
-                    "size": 0,
-                    "source_size": 0,
-                    "success": True,
-                    "cached": True,
-                    "error": None,
-                }
+            tasks.append((index, source, files[source]))
 
-                if self.progress_callback:
-                    self.progress_callback(1, self.files_total)
-
-                continue
-
-            tasks.append(
-                (
-                    index,
-                    source,
-                    files[source],
-                )
-            )
-
-        # Пул потоков вместо создания Thread на каждый файл.
+        # Пул потоков вместо создания Thread на каждый файл
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(
-                    self.convert_file,
-                    source,
-                    data,
-                    index,
-                ): index
-                for index, source, data in tasks
-            }
+            futures = { executor.submit(self.convert_file, s, d, i) : i for i, s, d in tasks }
 
-            # Забираем результаты по мере готовности.
-            # Это позволяет потокам непрерывно работать,
-            # не ожидая завершения предыдущих файлов.
+            i = 0
+
             for future in as_completed(futures):
+
                 if self.stop_event.is_set():
                     break
 
                 index = futures[future]
 
                 try:
-                    future.result()
-                except Exception as exc:
-                    source = all_files[index - 1]
+                    result = future.result()
+                    self.saved_images += 1
+                    i += 1
 
-                    self.completed_results[index] = {
-                        "index": index,
-                        "source": source,
-                        "output": self.get_output_file(source),
-                        "width": 0,
-                        "height": 0,
-                        "quality": 0,
-                        "size": 0,
-                        "source_size": 0,
-                        "success": False,
-                        "error": str(exc),
-                    }
+                    self.log(
+                        f"{i}/{self.files_total}: "
+                        f"{result['output']} | "
+                        f"{result['width']}x{result['height']} | "
+                        f"{result['quality']:.0f}% | "
+                        f"{textutils.format_size(result['size'])}"
+                    )
+
+                except Exception as e:
+                    source = all_files[index - 1]
+                    i += 1
+
+                    self.log(f"{i}/{self.files_total}: ERROR: {str(e)}")
 
         self.write_cache()
-
-        # Выводим результаты в исходном порядке.
-        for index in range(1, len(all_files) + 1):
-            if self.stop_event.is_set():
-                break
-
-            result = self.completed_results.get(index)
-
-            if not result:
-                continue
-
-            if result.get("cached"):
-                # output = result["output"]
-                # self.log(
-                #     f"{index}/{self.files_total}: "
-                #     f"{output} | cached"
-                # )
-                continue
-
-            if result["success"]:
-                self.saved_images += 1
-                self.source_sizes.append(result["source_size"])
-                self.saved_sizes.append(result["size"])
-                self.saved_qualities.append(result["quality"])
-
-                self.log(
-                    f"{index}/{self.files_total}: "
-                    f"{result['output']} | "
-                    f"{result['width']}x{result['height']} | "
-                    f"{result['quality']:.0f}% | "
-                    f"{textutils.format_size(result['size'])}"
-                )
-            else:
-                self.log(
-                    f"{index}/{self.files_total}: "
-                    f"ERROR: {result['source']} | "
-                    f"{result['error']}"
-                )
 
         self.log(f"Images converted: {self.saved_images}")
         self.log(f"Finished in {time() - start:.1f} sec")

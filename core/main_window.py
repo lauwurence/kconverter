@@ -138,6 +138,7 @@ class MainWindow(QMainWindow):
         self._conversion_stop_requested = False
 
         self._folder_status_cache = {}
+        self._files_cache = {}
         self._directory_snapshot = {}
 
         # Threads & Workers
@@ -711,7 +712,6 @@ class MainWindow(QMainWindow):
 
         for entry in entries:
             child = QTreeWidgetItem([entry.name])
-
             child.setData(0, Qt.ItemDataRole.UserRole, str(entry))
 
             try:
@@ -1128,6 +1128,7 @@ class MainWindow(QMainWindow):
 
         return widget
 
+
     # =========================================================================
     # Audio output helpers
     # =========================================================================
@@ -1498,21 +1499,20 @@ class MainWindow(QMainWindow):
 
         folder = Path(folder).resolve()
 
-        effective_preset = self.get_local_image_preset(folder, preset, settings)
+        effective_preset = self.get_local_image_preset(
+            folder,
+            preset,
+            settings,
+        )
 
         if not effective_preset.output_folder.strip():
-            return False
-
-        signature = id(folder)#self._image_folder_signature(folder)
-
-        if signature is None:
             return False
 
         key = folder_cache_key(folder, effective_preset)
 
         cached = self._folder_status_cache.get(key)
 
-        if (cached is not None) and (cached.get("signature") == signature) and ("outdated" in cached):
+        if cached is not None and "outdated" in cached:
             return cached["outdated"]
 
         converter = ImageConverter(
@@ -1525,61 +1525,66 @@ class MainWindow(QMainWindow):
 
         outdated = False
 
-        image_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff"}
+        folders = [folder]
 
-        folders = [
-            p for p in folder.rglob("*") if p.is_dir()
-            and not any(x.is_dir() for x in p.iterdir())
-            and any(x.is_file() and x.suffix.lower() in image_exts for x in p.iterdir())
+        while folders and not outdated:
+            current = folders.pop()
 
-        ]
+            try:
+                with os.scandir(current) as entries:
 
-        for subfolder in [ folder ] + folders:
+                    for entry in entries:
 
-            for source in pathutils.iter_files(subfolder, suffix=".png"):
+                        try:
+                            if entry.is_dir(follow_symlinks=False):
+                                folders.append(entry.path)
+                                continue
 
-                try:
-                    output = converter.get_output_file(source)
+                            if not entry.is_file(follow_symlinks=False):
+                                continue
 
-                    # Нет результата
-                    if not output.exists():
-                        outdated = True
-                        break
+                            if entry.name.lower().rsplit(".", 1)[-1] not in {
+                                "jpg", "jpeg", "png", "gif",
+                                "webp", "bmp", "tiff" }:
+                                continue
 
-                    source_stat = source.stat()
+                            source = Path(entry.path)
 
-                    relative_file = source.relative_to(converter.source_root).as_posix()
+                            output = converter.get_output_file(source)
 
-                    expected_cache = (
-                        int(source_stat.st_mtime),
-                        effective_preset.cache_key,
-                    )
+                            # Нет результата
+                            try:
+                                output_stat = output.stat()
+                            except OSError:
+                                outdated = True
+                                break
 
-                    actual_cache = converter.cache.get(relative_file)
+                            source_stat = entry.stat(follow_symlinks=False)
+                            relative_file = source.relative_to(converter.source_root).as_posix()
+                            expected_cache = (int(source_stat.st_mtime), effective_preset.cache_key,)
+                            actual_cache = converter.cache.get(relative_file)
 
-                    # Настройки пресета изменились
-                    if actual_cache != expected_cache:
-                        outdated = True
-                        break
+                            # Настройки пресета изменились
+                            if actual_cache != expected_cache:
+                                outdated = True
+                                break
 
-                    # Дополнительная проверка времени
-                    output_stat = output.stat()
+                            # Output старше source
+                            if output_stat.st_mtime_ns < source_stat.st_mtime_ns:
+                                outdated = True
+                                break
 
-                    if output_stat.st_mtime_ns < source_stat.st_mtime_ns:
-                        outdated = True
-                        break
+                        except OSError:
+                            outdated = True
+                            break
 
-                except OSError:
-                    outdated = True
-                    break
+            except OSError:
+                outdated = True
 
-        if key not in self._folder_status_cache:
-            self._folder_status_cache[key] = {}
-
-        self._folder_status_cache[key]['signature'] = signature
-        self._folder_status_cache[key]['outdated'] = outdated
+        self._folder_status_cache[key] = { "outdated" : outdated, }
 
         return outdated
+
 
     def get_audio_output_folder(self, settings, preset, folder):
         """
@@ -1609,12 +1614,8 @@ class MainWindow(QMainWindow):
         return output_root / relative
 
 
-    def _audio_folder_signature(self, settings, preset, folder):
-        """
-        Сигнатура output-папки для кэширования размера.
-        Меняется, когда появляются/изменяются/удаляются
-        сконвертированные файлы.
-        """
+    def _audio_folder_signature_and_size(self, settings, preset, folder):
+
         output_folder = self.get_audio_output_folder(
             settings,
             preset,
@@ -1622,36 +1623,57 @@ class MainWindow(QMainWindow):
         )
 
         if output_folder is None or not output_folder.exists():
-            return ()
+            return (), 0
 
         entries = []
+        total = 0
+        folders = [output_folder]
 
-        try:
-            for path in output_folder.rglob("*"):
-                if not path.is_file():
-                    continue
+        while folders:
+            current = folders.pop()
 
-                try:
-                    stat = path.stat()
-                except OSError:
-                    continue
+            try:
+                with os.scandir(current) as items:
+                    for entry in items:
 
-                entries.append((
-                    path.relative_to(output_folder).as_posix(),
-                    stat.st_mtime_ns,
-                    stat.st_size,
-                ))
+                        try:
+                            if entry.is_dir(follow_symlinks=False):
+                                folders.append(entry.path)
+                                continue
 
-        except OSError:
-            return None
+                            if not entry.is_file(follow_symlinks=False):
+                                continue
 
-        return tuple(sorted(entries))
+                            stat = entry.stat(follow_symlinks=False)
+
+                            relative = os.path.relpath(
+                                entry.path,
+                                output_folder,
+                            ).replace(os.sep, "/")
+
+                            entries.append((
+                                relative,
+                                stat.st_mtime_ns,
+                                stat.st_size,
+                            ))
+
+                            total += stat.st_size
+
+                        except OSError:
+                            continue
+
+            except OSError:
+                return None, 0
+
+        entries.sort()
+
+        return tuple(entries), total
 
 
     def get_audio_folder_output_size(self, settings, preset, folder):
         """
         Суммарный размер всех сконвертированных файлов
-        в output-папке Audio.
+        в output-папке Audio, включая подпапки.
         """
 
         if not preset.output_folder:
@@ -1659,47 +1681,38 @@ class MainWindow(QMainWindow):
 
         folder = Path(folder).resolve()
 
-        effective_settings = self.get_local_audio_settings(folder, preset)
+        effective_settings = self.get_local_audio_settings(
+            folder,
+            preset,
+        )
 
-        # Включаем bitrate в ключ кэша, чтобы после изменения
-        # локальных настроек размер пересчитался.
-        key = (str(folder), preset.cache_key, effective_settings["bitrate"], "audio")
-
-        signature = self._audio_folder_signature(settings, preset, folder)
-
-        if signature is None:
-            return 0
+        key = (
+            str(folder),
+            preset.cache_key,
+            effective_settings["bitrate"],
+            "audio",
+        )
 
         cached = self._folder_status_cache.get(key)
 
-        if (cached is not None) and (cached.get("signature") == signature) and ("output_size" in cached):
+        if cached is not None and "output_size" in cached:
             return cached["output_size"]
 
-        output_folder = self.get_audio_output_folder(settings, preset, folder)
+        result = self._audio_folder_signature_and_size(
+            settings,
+            preset,
+            folder,
+        )
 
-        total = 0
+        if result is None:
+            return 0
 
-        if output_folder is not None and output_folder.exists():
+        signature, total = result
 
-            try:
-                for path in output_folder.rglob("*"):
-
-                    if not path.is_file():
-                        continue
-
-                    try:
-                        total += path.stat().st_size
-                    except OSError:
-                        continue
-
-            except OSError:
-                pass
-
-        if key not in self._folder_status_cache:
-            self._folder_status_cache[key] = {}
-
-        self._folder_status_cache[key]['signature'] = signature
-        self._folder_status_cache[key]['output_size'] = total
+        self._folder_status_cache[key] = {
+            "signature": signature,
+            "output_size": total,
+        }
 
         return total
 
@@ -1709,42 +1722,78 @@ class MainWindow(QMainWindow):
         if not preset.output_folder.strip():
             return 0
 
-        folder = Path(folder).resolve()
+        folder = Path(folder)
 
-        effective_preset = self.get_local_image_preset(folder, preset, settings)
+        effective_preset = self.get_local_image_preset(
+            folder,
+            preset,
+            settings,
+        )
+
         key = folder_cache_key(folder, effective_preset)
-
-        signature = id(folder)#self._image_folder_signature(folder)
-
-        if signature is None:
-            return 0
 
         cached = self._folder_status_cache.get(key)
 
-        if (cached is not None) and (cached.get("signature") == signature) and ("output_size" in cached):
+        if cached is not None and "output_size" in cached:
             return cached["output_size"]
 
-        converter = ImageConverter(settings.source_folder, effective_preset, source_root=settings.source_folder)
+        converter = ImageConverter(
+            settings.source_folder,
+            effective_preset,
+            source_root=settings.source_folder,
+        )
 
         total = 0
+        folders = [folder]
 
-        for source in pathutils.iter_files(folder, suffix=".png"):
-            output = converter.get_output_file(source)
+        while folders:
+            current = folders.pop()
 
-            if output.exists():
-                total += output.stat().st_size
+            try:
+                with os.scandir(current) as entries:
 
-        if key not in self._folder_status_cache:
-            self._folder_status_cache[key] = {}
+                    for entry in entries:
 
-        self._folder_status_cache[key]['signature'] = signature
-        self._folder_status_cache[key]['output_size'] = total
+                        if entry in self._files_cache:
+                            total += self._files_cache[entry]
+                            continue
+
+                        try:
+                            if entry.is_dir(follow_symlinks=False):
+                                folders.append(entry.path)
+                                continue
+
+                            if not entry.is_file(follow_symlinks=False):
+                                continue
+
+                            if not entry.name.lower().endswith(".png"):
+                                continue
+
+                            source = Path(entry.path)
+                            output = converter.get_output_file(source)
+                            st_size = output.stat().st_size
+
+                            self._files_cache[entry] = st_size
+
+                            try:
+                                total += st_size
+                            except OSError:
+                                pass
+
+                        except OSError:
+                            pass
+
+            except OSError:
+                pass
+
+        self._folder_status_cache[key] = { "output_size" : total }
 
         return total
 
 
     def _invalidate_folder_cache(self, folder):
         folder = Path(folder).resolve()
+        self._files_cache.clear()
 
         for key in list(self._folder_status_cache):
             cached_folder = Path(key[0])
