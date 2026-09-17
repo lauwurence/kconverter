@@ -156,6 +156,7 @@ class LocalWebMDialog(QDialog):
         self.speed = QDoubleSpinBox()
         self.speed.setRange(0.01, 100)
         self.speed.setDecimals(2)
+        self.speed.setSingleStep(0.05)
         self.speed.setValue(s["speed"])
         form.addRow("Speed:", self.speed)
 
@@ -211,7 +212,7 @@ class LocalWebMDialog(QDialog):
         self.sharpen_radius = QDoubleSpinBox()
         self.sharpen_radius.setSuffix(" px")
         self.sharpen_radius.setRange(0, 10)
-        self.sharpen_radius.setSingleStep(0.25)
+        self.sharpen_radius.setSingleStep(0.1)
         self.sharpen_radius.setDecimals(2)
         self.sharpen_radius.setValue(s["sharpen_radius"])
         form.addRow("Sharpen radius:", self.sharpen_radius)

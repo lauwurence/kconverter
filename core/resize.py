@@ -9,6 +9,19 @@ from PyQt6.QtWidgets import (
 
 from PyQt6.QtWidgets import QSizePolicy
 
+class FlexibleDoubleSpinBox(QDoubleSpinBox):
+    def textFromValue(self, value):
+        text = f"{value:.10f}".rstrip("0").rstrip(".")
+
+        if "." not in text:
+            text += ".00"
+        else:
+            decimals = len(text.split(".")[1])
+            if decimals < 2:
+                text += "0" * (2 - decimals)
+
+        return text
+
 class ResizeControls:
 
     def __init__(
@@ -41,9 +54,9 @@ class ResizeControls:
         self.resolution_height.setSuffix(" px")
         self.resolution_height.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        self.downsample = QDoubleSpinBox()
+        self.downsample = FlexibleDoubleSpinBox()
         self.downsample.setRange(0.01, 100.0)
-        self.downsample.setDecimals(2)
+        self.downsample.setDecimals(10)
         self.downsample.setSingleStep(0.1)
         self.downsample.setValue(max(0.01, downsample))
         self.downsample.setSuffix("×")
@@ -77,17 +90,13 @@ class ResizeControls:
 
         if local_override:
             self.downsample_check = QCheckBox()
-            self.downsample_check.setChecked(
-                "downsample" in self.enabled_overrides
-            )
+            self.downsample_check.setChecked("downsample" in self.enabled_overrides)
             downsample_layout.addWidget(self.downsample_check)
 
         # Resize mode
         if local_override:
             self.resize_mode_check = QCheckBox()
-            self.resize_mode_check.setChecked(
-                "resize_mode" in self.enabled_overrides
-            )
+            self.resize_mode_check.setChecked("resize_mode" in self.enabled_overrides)
 
             resize_mode_widget = QWidget()
             resize_mode_layout = QHBoxLayout(resize_mode_widget)

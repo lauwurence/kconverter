@@ -5,7 +5,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtWidgets import QTreeWidget, QHeaderView
 
-from config import THUMBNAIL_SIZE
+from config import THUMBNAIL_HEIGHT
 
 
 class FolderTree(QTreeWidget):
@@ -19,7 +19,7 @@ class FolderTree(QTreeWidget):
         self.setDragDropMode(QTreeWidget.DragDropMode.DropOnly)
         self.setColumnCount(2)
         self.setHeaderLabels(["Folder / File", "Status"])
-        self.setIconSize(QSize(THUMBNAIL_SIZE, THUMBNAIL_SIZE))
+        self.setIconSize(QSize(int(THUMBNAIL_HEIGHT * 2), THUMBNAIL_HEIGHT))
         self.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         self.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.setColumnWidth(0, 600)

@@ -33,7 +33,6 @@ from core.custom.CustomQIcon import IconCache
 from core.custom.CustomQSVG import CustomQSVG
 from core.taskbar import TaskbarProgress
 
-
 from config import (
     VERSION, SAVES_DIR, CACHE_DIR, PROJECT_EXTENSION, ROOT_ROW_HEIGHT,
     FOLDER_ROW_HEIGHT, ICON,
@@ -44,9 +43,10 @@ def folder_cache_key(folder, preset):
     return str(Path(folder).resolve()), preset.cache_key
 
 class ConvertedFileButton(QPushButton):
+
     def __init__(self, output_path, parent=None):
         super().__init__(parent)
-        self.output_path = Path(output_path).resolve()
+        self.output_path = Path(output_path).resolve() if output_path else None
         self.tooltip_prefix = ""
         self.tooltip_extra = ""
 
@@ -76,6 +76,9 @@ class ConvertedFileButton(QPushButton):
         return f"{days}d ago"
 
     def update_tooltip(self):
+
+        if not self.output_path:
+            return
         try:
             converted_at = self.output_path.stat().st_mtime
         except OSError:
@@ -180,8 +183,7 @@ class MainWindow(QMainWindow):
             if (
                 self._active_conversion_job[0] is settings
                 and self._active_conversion_job[1] is preset
-                and Path(self._active_conversion_job[2]).resolve()
-                    == Path(folder).resolve()
+                and Path(self._active_conversion_job[2]).resolve() == Path(folder).resolve()
             ):
                 return
 
@@ -502,6 +504,7 @@ class MainWindow(QMainWindow):
         if added:
             self.mark_dirty()
             self.rescan()
+            self.rebuild_folders()
 
 
     def create_root_controls(self, settings):
@@ -2216,9 +2219,7 @@ class MainWindow(QMainWindow):
                     if child_item is None:
                         continue
 
-                    child_source = self.get_folder_thumbnail_source(
-                        child_folder
-                    )
+                    child_source = self.get_folder_thumbnail_source(child_folder)
 
                     if child_source:
                         paths.append((str(child_folder.resolve()), child_source))
@@ -2306,6 +2307,7 @@ class MainWindow(QMainWindow):
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.mark_dirty()
+            self.rescan()
             self.rebuild_folders()
 
 
@@ -2322,6 +2324,7 @@ class MainWindow(QMainWindow):
         self.folders.remove(settings)
         self.mark_dirty()
         self.rescan()
+        self.rebuild_folders()
         self.log_message(f"Removed from project: {settings.source_folder}")
 
 
@@ -2373,7 +2376,6 @@ class MainWindow(QMainWindow):
             self.log_message(f"Rescan started for {len(changed_paths)} converted folder(s)...")
         else:
             self.log_message("Rescan started...")
-
 
         self.rescan_worker = RescanWorker(self.folders, mode, changed_paths)
         self.rescan_worker.result_ready.connect(self.__rescan_ready)
@@ -3007,6 +3009,7 @@ class MainWindow(QMainWindow):
             self.project_filename = str(path)
             self.mark_clean()
             self.rescan()
+            self.rebuild_folders()
             self.log_message(f"Project loaded: {path}")
 
         except Exception as exc:
@@ -3057,11 +3060,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
 
         if self.conversion_worker:
-            QMessageBox.warning(
-                self,
-                "Conversion running",
-                "Stop the conversion before closing."
-            )
+            QMessageBox.warning(self, "Conversion running", "Stop the conversion before closing.")
             event.ignore()
             return
 

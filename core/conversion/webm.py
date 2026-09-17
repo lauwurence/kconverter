@@ -1,6 +1,7 @@
 ################################################################################
 ## WebM Converter
 
+import os
 import re
 import pickle
 import hashlib
@@ -318,7 +319,7 @@ class WebMConverter():
         return concat_file
 
 
-    def build_filters(self, do_loop=False, duration=None, output_frame_duration=None):
+    def build_filters(self, do_loop=False, duration=None, trim_frame_duration=None):
         settings = self.settings
         input_fps = float(settings["input_fps"])
         output_fps = float(settings["output_fps"])
@@ -368,10 +369,10 @@ class WebMConverter():
                 f"luma_amount={sharpen}"
             )
 
-        # Loop Trom
+        # Loop Trim
         if do_loop:
             filters.append(
-                f"trim=start={output_frame_duration:.12f}:end={duration - output_frame_duration:.12f}"
+                f"trim=start={trim_frame_duration}"#:end={duration - trim_frame_duration}"
             )
 
         return filters
@@ -380,10 +381,6 @@ class WebMConverter():
     def run_process(self, command):
 
         startupinfo = None
-        creationflags = 0
-
-        if __import__("sys").platform == "win32":
-            creationflags = subprocess.CREATE_NO_WINDOW
 
         self.process = subprocess.Popen(
             command,
@@ -393,7 +390,7 @@ class WebMConverter():
             encoding="utf-8",
             errors="replace",
             startupinfo=startupinfo,
-            creationflags=creationflags,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
 
         while True:
@@ -458,9 +455,10 @@ class WebMConverter():
 
         effective_fps = float(settings["input_fps"]) * float(settings["speed"])
         output_fps = float(settings["output_fps"])
-        output_frame_duration = 1.0 / output_fps
-        duration = len(images) / effective_fps
         do_loop = bool(settings["loop"]) and (int(settings["interpolate"]) != 0) and (effective_fps < output_fps)
+
+        duration = len(images) / effective_fps
+        trim_frame_duration = 1.0 / effective_fps
 
         # -------------------------------------------------------------------------
         # Loop
@@ -510,7 +508,7 @@ class WebMConverter():
         filters = self.build_filters(
             do_loop=do_loop,
             duration=duration,
-            output_frame_duration=output_frame_duration,
+            trim_frame_duration=trim_frame_duration,
         )
 
         input_stream = ffmpeg.input(

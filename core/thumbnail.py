@@ -9,7 +9,7 @@ from threading import Event, Lock
 from PIL import Image, ImageOps
 from PyQt6.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal, pyqtSlot
 
-from config import THUMBNAIL_SIZE, THUMBNAIL_DIR
+from config import THUMBNAIL_HEIGHT, THUMBNAIL_DIR
 
 
 class _ThumbnailTask(QRunnable):
@@ -129,8 +129,8 @@ class ThumbnailWorker(QObject):
                     image.draft(
                         "RGB",
                         (
-                            THUMBNAIL_SIZE * 2,
-                            THUMBNAIL_SIZE * 2,
+                            THUMBNAIL_HEIGHT * 2,
+                            THUMBNAIL_HEIGHT * 2,
                         ),
                     )
                 except Exception:
@@ -151,8 +151,8 @@ class ThumbnailWorker(QObject):
                 # sufficient for small UI thumbnails.
                 image.thumbnail(
                     (
-                        int(THUMBNAIL_SIZE * 1.5),
-                        int(THUMBNAIL_SIZE * 1.5),
+                        int(THUMBNAIL_HEIGHT * 1.5),
+                        int(THUMBNAIL_HEIGHT * 1.5),
                     ),
                     Image.Resampling.BILINEAR,
                 )
