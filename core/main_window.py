@@ -504,6 +504,12 @@ class MainWindow(QMainWindow):
 
         file_menu = self.menuBar().addMenu("File")      # type: ignore
 
+        new = file_menu.addAction("New")      # type: ignore
+        new.setIcon(QIcon("icons/new_project.svg"))
+        new.triggered.connect(lambda checked=False, fn=None: self.read_project(fn))
+
+        file_menu.addSeparator()        # type: ignore
+
         save = file_menu.addAction("Save")      # type: ignore
         save.setIcon(QIcon("icons/save_project.svg"))
 
@@ -539,8 +545,12 @@ class MainWindow(QMainWindow):
     def setup_shortcuts(self):
         save = QShortcut(QKeySequence("Ctrl+S"), self)
         save.activated.connect(self.save_project)
+
         save_as = QShortcut(QKeySequence("Ctrl+Shift+S"), self)
         save_as.activated.connect(self.save_project_as)
+
+        open = QShortcut(QKeySequence("Ctrl+O"), self)
+        open.activated.connect(self.load_project)
 
 
     def update_title(self):
@@ -2949,10 +2959,16 @@ class MainWindow(QMainWindow):
     def read_project(self, filename):
 
         try:
-            path = Path(filename).resolve()
 
-            with open(path, "rb") as file:
-                data = pickle.load(file)
+            if filename is not None:
+                path = Path(filename).resolve()
+
+                with open(path, "rb") as file:
+                    data = pickle.load(file)
+
+            else:
+                path = None
+                data = {}
 
             self.folders.clear()
             self.items_by_path.clear()
@@ -2966,7 +2982,7 @@ class MainWindow(QMainWindow):
                     self.folders.append(settings)
 
             setutils.write_last_project(path)
-            self.project_filename = str(path)
+            self.project_filename = str(path) if path else None
             self.mark_clean()
             self.rescan()
             self.rebuild_folders()

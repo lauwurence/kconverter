@@ -66,7 +66,7 @@ def write_last_project(filename):
 
     try:
         SAVES_DIR.mkdir(parents=True, exist_ok=True)
-        data = { 'last_project' : str(Path(filename).resolve()) }
+        data = { 'last_project' : str(Path(filename).resolve()) if filename else None }
 
         with open(PERSISTENT_FILE, "wb") as file:
             pickle.dump(data, file, protocol=pickle.HIGHEST_PROTOCOL)
