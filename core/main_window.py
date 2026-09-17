@@ -942,7 +942,7 @@ class MainWindow(QMainWindow):
                 button.setFixedHeight(30)
 
             if settings.mode == "Images":
-                outdated = False#self.folder_has_outdated_images(settings, preset, folder)
+                outdated = self.folder_has_outdated_images(settings, preset, folder)
 
             if settings.mode == "Images" and preset.output_folder:
 

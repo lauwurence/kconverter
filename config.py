@@ -14,7 +14,7 @@ APPID = f'kconverter.{".".join([str(v) for v in VERSION])}'.lower()
 LOCAL_DIR = Path(__file__).resolve().parent
 
 ROOT_ROW_HEIGHT = 60
-THUMBNAIL_HEIGHT = 30
+THUMBNAIL_HEIGHT = 28
 FOLDER_ROW_HEIGHT = 36
 
 PROJECT_EXTENSION = ".kcp"

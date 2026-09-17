@@ -19,7 +19,7 @@ class FolderTree(QTreeWidget):
         self.setDragDropMode(QTreeWidget.DragDropMode.DropOnly)
         self.setColumnCount(2)
         self.setHeaderLabels(["Folder / File", "Status"])
-        self.setIconSize(QSize(int(THUMBNAIL_HEIGHT * 2), THUMBNAIL_HEIGHT))
+        self.setIconSize(QSize(int(THUMBNAIL_HEIGHT * 4), int(THUMBNAIL_HEIGHT)))
         self.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         self.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.setColumnWidth(0, 600)

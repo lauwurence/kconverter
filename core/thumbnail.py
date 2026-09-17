@@ -129,8 +129,8 @@ class ThumbnailWorker(QObject):
                     image.draft(
                         "RGB",
                         (
-                            THUMBNAIL_HEIGHT * 2,
-                            THUMBNAIL_HEIGHT * 2,
+                            THUMBNAIL_HEIGHT *32,
+                            THUMBNAIL_HEIGHT *32,
                         ),
                     )
                 except Exception:
@@ -151,8 +151,8 @@ class ThumbnailWorker(QObject):
                 # sufficient for small UI thumbnails.
                 image.thumbnail(
                     (
-                        int(THUMBNAIL_HEIGHT * 1.5),
-                        int(THUMBNAIL_HEIGHT * 1.5),
+                        int(THUMBNAIL_HEIGHT * 3),
+                        int(THUMBNAIL_HEIGHT * 3),
                     ),
                     Image.Resampling.BILINEAR,
                 )
