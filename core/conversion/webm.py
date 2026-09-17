@@ -340,6 +340,12 @@ class WebMConverter():
         else:
             filters.append(f"fps={output_fps:g}")
 
+        # Motion Blur
+        # filters.append(
+        #     f"tmix=frames=2:"
+        #     f"weights=1 2"
+        # )
+
         # Scale
         resolution = self.resolution()
 
@@ -370,9 +376,13 @@ class WebMConverter():
             )
 
         # Loop Trim
+        # if do_loop:
+        #     filters.append(
+        #         f"trim=start={trim_frame_duration}"#:end={duration - trim_frame_duration}"
+        #     )
         if do_loop:
             filters.append(
-                f"trim=start={trim_frame_duration}"#:end={duration - trim_frame_duration}"
+                f"trim=start={trim_frame_duration * 0.25}:end={duration - (trim_frame_duration * 0.25)}"
             )
 
         return filters

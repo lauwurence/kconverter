@@ -32,6 +32,8 @@ from core.utils import textutils, pathutils, setutils
 from core.custom.CustomQIcon import IconCache
 from core.custom.CustomQSVG import CustomQSVG
 from core.taskbar import TaskbarProgress
+from core.crop_transparency import CropTransparencyWorker
+from core.make_loop import make_loop
 
 from config import (
     VERSION, SAVES_DIR, CACHE_DIR, PROJECT_EXTENSION, ROOT_ROW_HEIGHT,
@@ -139,6 +141,7 @@ class MainWindow(QMainWindow):
         self.conversion_worker = None
         self.thumbnail_worker = None
         self.rescan_worker = None
+        self.crop_transparency_worker = None
 
         # Ensure saves directory
         SAVES_DIR.mkdir(parents=True, exist_ok=True)
@@ -1204,9 +1207,25 @@ class MainWindow(QMainWindow):
 
         path = Path(path).resolve()
 
+        settings = self.settings_by_item.get(id(item))
+        is_root = settings is not None
+
         menu = QMenu(self.tree)
 
-        open_folder_action = menu.addAction("Open Folder")
+        open_folder_action = menu.addAction("Reveal in File Explorer")
+
+        menu.addSeparator()
+
+        crop_images_action = menu.addAction('Run "Crop Images"')
+        crop_images_action.setEnabled(not bool(self.crop_transparency_worker) and not is_root)
+
+        make_loop_action = menu.addAction('Run "Make Loop"')
+        make_loop_action.setEnabled(not is_root)
+
+        # menu.addSeparator()
+
+        # delete_folder_action = menu.addAction("Delete")
+        # delete_folder_action.setEnabled(not is_root)
 
         action = menu.exec(self.tree.viewport().mapToGlobal(pos))
 
@@ -1217,6 +1236,63 @@ class MainWindow(QMainWindow):
             else:
                 QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
 
+        elif action == crop_images_action:
+
+            reply = QMessageBox.question(
+                self,
+                "Crop Images",
+                f"Start cropping images in:\n\n{path}",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+
+            if reply == QMessageBox.StandardButton.Yes:
+                self.start_crop_transparency_worker(path=path)
+
+        elif action == make_loop_action:
+
+            reply = QMessageBox.question(
+                self,
+                "Make Loop",
+                f"Start making loop images in:\n\n{path}",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+
+            if reply == QMessageBox.StandardButton.Yes:
+                self.start_make_loop_worker(path=path)
+
+
+    def start_crop_transparency_worker(self, path):
+
+        if self.crop_transparency_worker:
+            return
+
+        worker = CropTransparencyWorker(path)
+        self.crop_transparency_worker = worker
+
+        worker.progress.connect(self.log_message)
+        worker.error.connect(self.log_message)
+        worker.finished.connect(lambda worker=worker: self.crop_transparency_finished(worker))
+
+        worker.start()
+
+
+    def crop_transparency_finished(self, worker=None):
+
+        if worker is None:
+            worker = self.crop_transparency_worker
+
+        if worker is self.crop_transparency_worker:
+            self.crop_transparency_worker = None
+
+        worker.deleteLater()
+
+
+    def start_make_loop_worker(self, path):
+
+        make_loop(path)
+
 
     def show_output_context_menu(self, button, path, refresh_callback=None):
         path = Path(path).resolve()
@@ -1226,19 +1302,19 @@ class MainWindow(QMainWindow):
 
         menu = QMenu(button)
 
-        open_action = menu.addAction("Open File")
-        open_folder_action = menu.addAction("Open Folder")
+        # open_action = menu.addAction("Open")
+        open_folder_action = menu.addAction("Reveal in File Explorer")
 
         menu.addSeparator()
 
-        delete_action = menu.addAction("Delete File")
+        delete_action = menu.addAction("Delete")
 
         action = menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
 
-        if action == open_action:
-            self.open_file(path)
+        # if action == open_action:
+        #     self.open_file(path)
 
-        elif action == open_folder_action:
+        if action == open_folder_action:
             if path.exists():
                 QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
 
@@ -1904,9 +1980,7 @@ class MainWindow(QMainWindow):
         if settings is None:
             return
 
-        root = (
-            folder == Path(settings.source_folder).resolve()
-        )
+        root = folder == Path(settings.source_folder).resolve()
 
         self._invalidate_file_status_cache(folder)
         self._invalidate_folder_cache(folder)
