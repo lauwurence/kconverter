@@ -1804,42 +1804,6 @@ class MainWindow(QMainWindow):
                 pass
 
 
-    # def get_local_image_preset(self, folder, preset):
-
-    #     if not preset:
-    #         return None
-
-    #     folder = Path(folder).resolve()
-    #     data = setutils.read_local_image_settings(folder)
-
-    #     current = data.get(preset.name)
-
-    #     if not isinstance(current, dict):
-    #         return preset
-
-    #     try:
-    #         local_preset = Preset.from_dict(preset.to_dict())
-    #         enabled = set(current.get('enabled_overrides', getattr(preset, 'enabled_overrides', set())))
-
-    #         for key, value in current.items():
-
-    #             if key in ['name', 'enabled_overrides']:
-    #                 continue
-
-    #             if key not in enabled:
-    #                 continue
-
-    #             if hasattr(local_preset, key):
-    #                 setattr(local_preset, key, value)
-
-    #         local_preset.name = preset.name
-
-    #         return local_preset
-
-    #     except Exception:
-    #         return preset
-
-
     def get_local_image_preset(self, folder, preset, settings):
 
         if not preset:
