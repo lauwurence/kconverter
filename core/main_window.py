@@ -162,6 +162,61 @@ class MainWindow(QMainWindow):
         self.tree.itemExpanded.connect(self._on_item_expanded)
 
 
+    def get_item(self, path=None):
+        """
+        Get widget item.
+        """
+
+        if path is not None:
+
+            if isinstance(path, str):
+                path = Path(path)
+
+            path = str(path.resolve())
+
+            rv = self.items_by_path.get(path)
+
+            if rv:
+                return rv
+
+        return None
+
+
+    def get_settings(self, item=None, path=None):
+        """
+        Get settings.
+        """
+
+        if item is not None:
+            rv = self.settings_by_item.get(id(item))
+
+            if rv:
+                return rv
+
+        if path is not None:
+            path = Path(path).resolve()
+
+            for settings in self.folders:
+                root = Path(settings.source_folder).resolve()
+
+                try:
+                    path.relative_to(root)
+                    return settings
+
+                except ValueError:
+                    continue
+
+        return None
+
+
+    def is_root(self, folder, settings):
+
+        if not folder or not settings:
+            return False
+
+        return Path(folder).resolve() == Path(settings.source_folder).resolve()
+
+
     def enqueue_conversion(self, job):
         """
         Add a conversion job to the queue.
@@ -192,7 +247,6 @@ class MainWindow(QMainWindow):
 
         # Новая очередь/новая задача снова разрешает конвертацию.
         self._conversion_stop_requested = False
-
         self._conversion_queue.append(job)
         self.update_conversion_button_states()
 
@@ -226,29 +280,20 @@ class MainWindow(QMainWindow):
         self.start_covnersion_jobs([job])
 
 
-    def _image_folder_signature(self, folder):
-        folder = Path(folder).resolve()
-        entries = []
+    # def _image_folder_signature(self, folder):
+    #     folder = Path(folder).resolve()
+    #     entries = []
 
-        try:
-            for source in pathutils.iter_files(folder, suffix=".png"):
+    #     for source in pathutils.iter_files(folder, suffix=".png"):
+    #         stat = source.stat()
 
-                try:
-                    stat = source.stat()
+    #         entries.append((
+    #             source.relative_to(folder).as_posix(),
+    #             stat.st_mtime_ns,
+    #             stat.st_size,
+    #         ))
 
-                    entries.append((
-                        source.relative_to(folder).as_posix(),
-                        stat.st_mtime_ns,
-                        stat.st_size,
-                    ))
-
-                except OSError:
-                    continue
-
-        except OSError:
-            return None
-
-        return tuple(sorted(entries))
+    #     return tuple(sorted(entries))
 
 
     def setup_ui(self):
@@ -360,7 +405,7 @@ class MainWindow(QMainWindow):
         if index <= 0:
             return
 
-        settings = self.settings_by_item.get(id(item))
+        settings = self.get_settings(item=item)
 
         if settings is None:
             return
@@ -378,9 +423,7 @@ class MainWindow(QMainWindow):
         self.rebuild_folders()
 
         # Снова выбираем перемещённую папку.
-        new_item = self.items_by_path.get(
-            str(Path(settings.source_folder).resolve())
-        )
+        new_item = self.get_item(path=settings.source_folder)
 
         if new_item is not None:
             self.tree.setCurrentItem(new_item)
@@ -419,7 +462,7 @@ class MainWindow(QMainWindow):
         if index < 0 or index >= count - 1:
             return
 
-        settings = self.settings_by_item.get(id(item))
+        settings = self.get_settings(item=item)
 
         if settings is None:
             return
@@ -437,9 +480,7 @@ class MainWindow(QMainWindow):
         self.rebuild_folders()
 
         # Снова выбираем перемещённую папку.
-        new_item = self.items_by_path.get(
-            str(Path(settings.source_folder).resolve())
-        )
+        new_item = self.get_item(path=settings.source_folder)
 
         if new_item is not None:
             self.tree.setCurrentItem(new_item)
@@ -529,6 +570,7 @@ class MainWindow(QMainWindow):
         item.setData(0, Qt.ItemDataRole.UserRole, settings.source_folder)
         item.setToolTip(0, settings.source_folder)
         item.setSizeHint(0, QSize(0, ROOT_ROW_HEIGHT))
+
         self.tree.addTopLevelItem(item)
         self.items_by_path[str(Path(settings.source_folder).resolve())] = item
         self.settings_by_item[id(item)] = settings
@@ -539,12 +581,15 @@ class MainWindow(QMainWindow):
 
     def _add_folder_placeholder(self, item):
         """Add a dummy child so the folder gets an expand arrow."""
+
         placeholder = QTreeWidgetItem()
         placeholder.setData(0, Qt.ItemDataRole.UserRole, None)
         item.addChild(placeholder)
 
+
     def _on_item_expanded(self, item):
         """Scan and populate only the folder that was just expanded."""
+
         path = item.data(0, Qt.ItemDataRole.UserRole)
 
         if not path:
@@ -555,9 +600,7 @@ class MainWindow(QMainWindow):
         if not folder.is_dir():
             return
 
-        settings = self.settings_by_item.get(id(item))
-        if settings is None:
-            settings = self.find_settings_for_path(folder)
+        settings = self.get_settings(item=item, path=folder)
 
         if settings is None:
             return
@@ -565,6 +608,7 @@ class MainWindow(QMainWindow):
         # Remove placeholder / old children only on first load.
         if item.childCount() == 1:
             child = item.child(0)
+
             if child.data(0, Qt.ItemDataRole.UserRole) is None:
                 item.takeChildren()
 
@@ -615,17 +659,7 @@ class MainWindow(QMainWindow):
         folder = Path(folder).resolve()
 
         try:
-            entries = sorted(
-                (
-                    path
-                    for path in folder.iterdir()
-                    if not path.name.startswith(".")
-                ),
-                key=lambda path: (
-                    not path.is_dir(),
-                    path.name.lower(),
-                ),
-            )
+            entries = sorted((path for path in folder.iterdir() if not path.name.startswith(".")), key=lambda path: (not path.is_dir(), path.name.lower()),)
 
         except (PermissionError, OSError):
             return
@@ -633,29 +667,19 @@ class MainWindow(QMainWindow):
         for entry in entries:
             child = QTreeWidgetItem([entry.name])
 
-            child.setData(
-                0,
-                Qt.ItemDataRole.UserRole,
-                str(entry),
-            )
+            child.setData(0, Qt.ItemDataRole.UserRole, str(entry))
 
             try:
                 converted_at = entry.stat().st_mtime
                 elapsed_seconds = max(0, time.time() - converted_at)
                 elapsed_text = ConvertedFileButton.format_elapsed_time(elapsed_seconds)
 
-                child.setToolTip(
-                    0,
-                    f"{entry}\n\nModified {elapsed_text}"
-                )
+                child.setToolTip(0, f"{entry}\n\nModified {elapsed_text}")
 
             except:
                 pass
 
-            child.setSizeHint(
-                0,
-                QSize(0, FOLDER_ROW_HEIGHT),
-            )
+            child.setSizeHint(0, QSize(0, FOLDER_ROW_HEIGHT))
 
             parent.addChild(child)
 
@@ -668,18 +692,9 @@ class MainWindow(QMainWindow):
             # -------------------------------------------------------------
 
             if entry.is_dir():
-                widget = self.create_folder_status(
-                    settings,
-                    entry,
-                    False,
-                )
+                widget = self.create_folder_status(settings, entry, False)
 
-                self.tree.setItemWidget(
-                    child,
-                    1,
-                    widget,
-                )
-
+                self.tree.setItemWidget(child, 1, widget)
                 self._add_folder_placeholder(child)
 
             # -------------------------------------------------------------
@@ -690,30 +705,16 @@ class MainWindow(QMainWindow):
 
                 # Images mode
                 if settings.mode == "Images":
-                    if entry.suffix.lower() == ".png":
-                        widget = self.create_file_status(
-                            settings,
-                            entry,
-                        )
 
-                        self.tree.setItemWidget(
-                            child,
-                            1,
-                            widget,
-                        )
+                    if entry.suffix.lower() == ".png":
+                        widget = self.create_file_status(settings, entry)
+                        self.tree.setItemWidget(child, 1, widget)
 
                 # Audio mode
                 elif settings.mode == "Audio":
-                    widget = self.create_audio_file_status(
-                        settings,
-                        entry,
-                    )
+                    widget = self.create_audio_file_status(settings, entry)
+                    self.tree.setItemWidget(child, 1, widget)
 
-                    self.tree.setItemWidget(
-                        child,
-                        1,
-                        widget,
-                    )
 
     def create_audio_file_status(self, settings, source):
         """
@@ -721,6 +722,7 @@ class MainWindow(QMainWindow):
 
         Each preset gets one button showing the converted file size.
         """
+
         widget = QWidget()
 
         layout = QHBoxLayout(widget)
@@ -730,13 +732,10 @@ class MainWindow(QMainWindow):
         source = Path(source).resolve()
 
         for preset in settings.presets:
-            output = self.get_audio_output_file(
-                settings,
-                preset,
-                source,
-            )
+            output = self.get_audio_output_file(settings, preset, source)
 
             if output is not None and output.is_file():
+
                 try:
                     size = output.stat().st_size
                 except OSError:
@@ -750,20 +749,11 @@ class MainWindow(QMainWindow):
                 button.setFixedWidth(75)
                 # button.setFlat(True)
 
-                button.setProperty(
-                    "converted_size",
-                    textutils.format_size(size),
-                )
+                button.setProperty("converted_size", textutils.format_size(size))
                 button.update_tooltip()
 
-                button.clicked.connect(
-                    lambda checked=False, path=output:
-                        self.open_file(path)
-                )
-
-                button.setContextMenuPolicy(
-                    Qt.ContextMenuPolicy.CustomContextMenu
-                )
+                button.clicked.connect(lambda checked=False, path=output: self.open_file(path))
+                button.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
                 button.customContextMenuRequested.connect(
                     lambda pos,
@@ -785,14 +775,8 @@ class MainWindow(QMainWindow):
                 button.setFixedWidth(75)
                 button.setFlat(True)
                 button.setEnabled(False)
-
-                button.setStyleSheet(
-                    "QPushButton:disabled { color: #888; }"
-                )
-
-                button.setToolTip(
-                    "Audio file has not been converted yet"
-                )
+                button.setStyleSheet("QPushButton:disabled { color: #888; }")
+                button.setToolTip("Audio file has not been converted yet")
 
             layout.addWidget(button)
 
@@ -864,10 +848,7 @@ class MainWindow(QMainWindow):
                     has_local = self.has_local_image_settings(folder, preset)
 
                     local_button.setIcon(QIcon("icons/settings_local.svg" if has_local else "icons/settings.svg"))
-                    local_button.setToolTip(
-                        "Local Image settings"
-                        + (" (override active)" if has_local else "")
-                    )
+                    local_button.setToolTip("Local Image settings" + (" (override active)" if has_local else ""))
 
                     local_button.setFixedSize(27, 25)
 
@@ -887,10 +868,7 @@ class MainWindow(QMainWindow):
                     has_local = self.has_local_audio_settings(folder, preset)
                     local_button = QToolButton()
                     local_button.setIcon(QIcon("icons/settings_local.svg" if has_local else "icons/settings.svg"))
-                    local_button.setToolTip(
-                        "Local Audio settings"
-                        + (" (override active)" if has_local else "")
-                    )
+                    local_button.setToolTip("Local Audio settings" + (" (override active)" if has_local else ""))
                     local_button.setFixedSize(27, 25)
                     local_button.clicked.connect(
                         lambda checked=False,
@@ -920,16 +898,13 @@ class MainWindow(QMainWindow):
                 button.setFixedHeight(30)
 
             if settings.mode == "Images":
-                outdated = self.folder_has_outdated_images(settings, preset, folder)
+                outdated = False#self.folder_has_outdated_images(settings, preset, folder)
 
             if settings.mode == "Images" and preset.output_folder:
 
                 if outdated:
                     button.setStyleSheet("""QPushButton { color: #ff9800; }""")
-                    button.setToolTip(
-                        f'Folder contains outdated images.\n'
-                        f'Convert this folder using "{preset.name}"'
-                        )
+                    button.setToolTip(f'Folder contains outdated images.\nConvert this folder using "{preset.name}"')
 
             if not preset.output_folder.strip():
                 button.setEnabled(False)
@@ -977,11 +952,7 @@ class MainWindow(QMainWindow):
                     audio_button.clicked.connect(lambda checked=False, s=settings, p=preset, f=Path(folder): self.open_conversion_result(s, p, f))
                     layout.addWidget(audio_button)
 
-                folder_size = self.get_audio_folder_output_size(
-                    settings,
-                    preset,
-                    folder,
-                )
+                folder_size = self.get_audio_folder_output_size(settings, preset, folder)
 
                 size_label = QLabel(textutils.format_size(folder_size))
                 size_label.setFixedWidth(75)
@@ -992,15 +963,9 @@ class MainWindow(QMainWindow):
             else:
 
                 if not root:
-
                     local = self.get_local_preset(folder, preset)
 
-                    converter = WebMConverter(
-                        folder,
-                        preset,
-                        local,
-                        source_root=settings.source_folder
-                    )
+                    converter = WebMConverter(folder, preset, local, source_root=settings.source_folder)
 
                     output = converter.get_preview_file()
 
@@ -1015,8 +980,8 @@ class MainWindow(QMainWindow):
                         open_button.setEnabled(True)
                     else:
                         open_button.setIcon(IconCache.get("icons/image.svg", opacity=.25))
-
                         open_button.setEnabled(False)
+
                     open_button.update_tooltip()
 
                     layout.addWidget(open_button)
@@ -1035,15 +1000,9 @@ class MainWindow(QMainWindow):
                     webm_folders = self.get_webm_folders(Path(folder))
 
                     for webm_folder in webm_folders:
-
                         local = self.get_local_preset(webm_folder, preset)
 
-                        converter = WebMConverter(
-                            webm_folder,
-                            preset,
-                            local,
-                            source_root=settings.source_folder,
-                        )
+                        converter = WebMConverter(webm_folder, preset, local, source_root=settings.source_folder)
 
                         output = converter.get_output_file()
 
@@ -1084,9 +1043,7 @@ class MainWindow(QMainWindow):
                             self.open_conversion_result(s, p, f, preview=False)
                     )
 
-                    webm_button.setContextMenuPolicy(
-                        Qt.ContextMenuPolicy.CustomContextMenu
-                    )
+                    webm_button.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
                     webm_button.customContextMenuRequested.connect(
                         lambda pos,
@@ -1096,8 +1053,7 @@ class MainWindow(QMainWindow):
                             self.show_output_context_menu(
                                 button,
                                 path,
-                                refresh_callback=lambda f=folder:
-                                    self._refresh_folder_status_widgets({f}),
+                                refresh_callback=lambda f=folder: self._refresh_folder_status_widgets({f}),
                             )
                     )
 
@@ -1106,7 +1062,6 @@ class MainWindow(QMainWindow):
                     webm_button.setFixedHeight(25 if not root else 30)
                     webm_button.setFixedWidth(75)
                     webm_button.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
 
                 else:
                     webm_button = QLabel("-")
@@ -1122,6 +1077,7 @@ class MainWindow(QMainWindow):
         all_button.setFixedHeight(25 if not root else 30)
         all_button.setFixedWidth(40)
         all_button.clicked.connect(lambda checked=False, s=settings, f=Path(folder): self.start_folder_all_conversions(s, f))
+
         layout.addWidget(self.create_separator())
         layout.addWidget(all_button)
         layout.addStretch()
@@ -1139,6 +1095,7 @@ class MainWindow(QMainWindow):
         The audio converter may change the extension, therefore we first
         check an exact filename and then search by filename stem.
         """
+
         if not preset or not preset.output_folder:
             return None
 
@@ -1162,12 +1119,7 @@ class MainWindow(QMainWindow):
         # Audio conversion normally changes the extension
         # (for example WAV -> MP3), so search by stem.
         try:
-            candidates = [
-                path
-                for path in output_folder.iterdir()
-                if path.is_file()
-                and path.stem.lower() == source.stem.lower()
-            ]
+            candidates = [ path for path in output_folder.iterdir() if path.is_file() and path.stem.lower() == source.stem.lower() ]
         except OSError:
             return None
 
@@ -1182,7 +1134,8 @@ class MainWindow(QMainWindow):
     def _invalidate_audio_status_cache(self, folder):
         folder = Path(folder).resolve()
 
-        for key in list(self._folder_status_cache):
+        for key in self._folder_status_cache.keys():
+
             if len(key) < 4:
                 continue
 
@@ -1207,8 +1160,8 @@ class MainWindow(QMainWindow):
 
         path = Path(path).resolve()
 
-        settings = self.settings_by_item.get(id(item))
-        is_root = settings is not None
+        settings = self.get_settings(item=item)
+        is_root = self.is_root(path, settings)
 
         menu = QMenu(self.tree)
 
@@ -1343,52 +1296,31 @@ class MainWindow(QMainWindow):
     def _refresh_file_status_widget(self, source):
         source = Path(source).resolve()
 
-        item = self.items_by_path.get(
-            str(source)
-        )
+        item = self.get_item(path=source)
 
         if item is None:
             return
 
-        settings = self.find_settings_for_path(
-            source
-        )
+        settings = self.get_settings(item=item, path=source)
 
         if settings is None:
             return
 
         # Invalidate file cache.
-        self._invalidate_file_status_cache(
-            source.parent
-        )
+        self._invalidate_file_status_cache(source.parent)
 
         # Rebuild appropriate widget.
         if settings.mode == "Audio":
-            widget = self.create_audio_file_status(
-                settings,
-                source,
-            )
+            widget = self.create_audio_file_status(settings, source)
         else:
-            widget = self.create_file_status(
-                settings,
-                source,
-            )
+            widget = self.create_file_status(settings, source)
 
-        self.tree.removeItemWidget(
-            item,
-            1,
-        )
-
-        self.tree.setItemWidget(
-            item,
-            1,
-            widget,
-        )
+        self.tree.removeItemWidget(item, 1, )
+        self.tree.setItemWidget(item, 1, widget)
 
         # Folder size also changed.
-        self._refresh_folder_status_widgets(
-            {source.parent}
-        )
+        self._refresh_folder_status_widgets({source.parent})
+
 
     def update_conversion_button_states(self):
         """
@@ -1527,7 +1459,7 @@ class MainWindow(QMainWindow):
         if not effective_preset.output_folder.strip():
             return False
 
-        signature = self._image_folder_signature(folder)
+        signature = id(folder)#self._image_folder_signature(folder)
 
         if signature is None:
             return False
@@ -1536,7 +1468,7 @@ class MainWindow(QMainWindow):
 
         cached = self._folder_status_cache.get(key)
 
-        if cached is not None and (cached.get("signature") == signature) and ("outdated" in cached):
+        if (cached is not None) and (cached.get("signature") == signature) and ("outdated" in cached):
             return cached["outdated"]
 
         converter = ImageConverter(
@@ -1586,9 +1518,11 @@ class MainWindow(QMainWindow):
                 outdated = True
                 break
 
-        cached = self._folder_status_cache.setdefault(key, {})
-        cached["signature"] = signature
-        cached["outdated"] = outdated
+        if key not in self._folder_status_cache:
+            self._folder_status_cache[key] = {}
+
+        self._folder_status_cache[key]['signature'] = signature
+        self._folder_status_cache[key]['outdated'] = outdated
 
         return outdated
 
@@ -1664,54 +1598,37 @@ class MainWindow(QMainWindow):
         Суммарный размер всех сконвертированных файлов
         в output-папке Audio.
         """
+
         if not preset.output_folder:
             return 0
 
         folder = Path(folder).resolve()
 
-        effective_settings = self.get_local_audio_settings(
-            folder,
-            preset,
-        )
+        effective_settings = self.get_local_audio_settings(folder, preset)
 
         # Включаем bitrate в ключ кэша, чтобы после изменения
         # локальных настроек размер пересчитался.
-        key = (
-            str(folder),
-            preset.cache_key,
-            effective_settings["bitrate"],
-            "audio",
-        )
+        key = (str(folder), preset.cache_key, effective_settings["bitrate"], "audio")
 
-        signature = self._audio_folder_signature(
-            settings,
-            preset,
-            folder,
-        )
+        signature = self._audio_folder_signature(settings, preset, folder)
 
         if signature is None:
             return 0
 
         cached = self._folder_status_cache.get(key)
 
-        if (
-            cached is not None
-            and cached.get("signature") == signature
-            and "output_size" in cached
-        ):
+        if (cached is not None) and (cached.get("signature") == signature) and ("output_size" in cached):
             return cached["output_size"]
 
-        output_folder = self.get_audio_output_folder(
-            settings,
-            preset,
-            folder,
-        )
+        output_folder = self.get_audio_output_folder(settings, preset, folder)
 
         total = 0
 
         if output_folder is not None and output_folder.exists():
+
             try:
                 for path in output_folder.rglob("*"):
+
                     if not path.is_file():
                         continue
 
@@ -1723,11 +1640,14 @@ class MainWindow(QMainWindow):
             except OSError:
                 pass
 
-        cached = self._folder_status_cache.setdefault(key, {})
-        cached["signature"] = signature
-        cached["output_size"] = total
+        if key not in self._folder_status_cache:
+            self._folder_status_cache[key] = {}
+
+        self._folder_status_cache[key]['signature'] = signature
+        self._folder_status_cache[key]['output_size'] = total
 
         return total
+
 
     def get_folder_output_size(self, settings, preset, folder):
 
@@ -1739,47 +1659,31 @@ class MainWindow(QMainWindow):
         effective_preset = self.get_local_image_preset(folder, preset)
         key = folder_cache_key(folder, effective_preset)
 
-        signature = self._image_folder_signature(folder)
+        signature = id(folder)#self._image_folder_signature(folder)
 
         if signature is None:
             return 0
 
         cached = self._folder_status_cache.get(key)
 
-        if (
-            cached is not None
-            and cached.get("signature") == signature
-            and "output_size" in cached
-        ):
+        if (cached is not None) and (cached.get("signature") == signature) and ("output_size" in cached):
             return cached["output_size"]
 
-        converter = ImageConverter(
-            settings.source_folder,
-            effective_preset,
-            source_root=settings.source_folder,
-        )
+        converter = ImageConverter(settings.source_folder, effective_preset, source_root=settings.source_folder)
 
         total = 0
 
-        try:
-            for source in pathutils.iter_files(folder, suffix=".png"):
+        for source in pathutils.iter_files(folder, suffix=".png"):
+            output = converter.get_output_file(source)
 
-                try:
-                    output = converter.get_output_file(source)
+            if output.exists():
+                total += output.stat().st_size
 
-                    if output.exists():
-                        total += output.stat().st_size
+        if key not in self._folder_status_cache:
+            self._folder_status_cache[key] = {}
 
-                except OSError:
-                    continue
-
-        except OSError:
-            pass
-
-        cached = self._folder_status_cache.setdefault(key, {})
-
-        cached["signature"] = signature
-        cached["output_size"] = total
+        self._folder_status_cache[key]['signature'] = signature
+        self._folder_status_cache[key]['output_size'] = total
 
         return total
 
@@ -1798,34 +1702,15 @@ class MainWindow(QMainWindow):
             del self._folder_status_cache[key]
 
 
-    def find_settings_for_path(self, path):
-        path = Path(path).resolve()
-
-        for settings in self.folders:
-            root = Path(settings.source_folder).resolve()
-
-            try:
-                path.relative_to(root)
-                return settings
-
-            except ValueError:
-                continue
-
-        return None
-
-
     def get_output_file(self, source, preset):
         source = Path(source).resolve()
 
-        settings = self.find_settings_for_path(source)
+        settings = self.get_settings(path=source)
 
         if settings is None or not preset.output_folder:
             return None
 
-        effective_preset = self.get_local_image_preset(
-            source.parent,
-            preset,
-        )
+        effective_preset = self.get_local_image_preset(source.parent, preset)
 
         return ImageConverter(
             settings.source_folder,
@@ -1967,35 +1852,23 @@ class MainWindow(QMainWindow):
     def _refresh_local_image_status(self, folder):
         folder = Path(folder).resolve()
 
-        item = self.items_by_path.get(str(folder))
+        item = self.get_item(path=folder)
 
         if item is None:
             return
 
-        settings = self.settings_by_item.get(id(item))
-
-        if settings is None:
-            settings = self.find_settings_for_path(folder)
+        settings = self.get_settings(item=item, path=folder)
 
         if settings is None:
             return
 
-        root = folder == Path(settings.source_folder).resolve()
+        is_root = self.is_root(folder, settings)
 
         self._invalidate_file_status_cache(folder)
         self._invalidate_folder_cache(folder)
 
         self.tree.removeItemWidget(item, 1)
-
-        self.tree.setItemWidget(
-            item,
-            1,
-            self.create_folder_status(
-                settings,
-                folder,
-                root=root,
-            )
-        )
+        self.tree.setItemWidget(item, 1, self.create_folder_status(settings, folder, root=is_root))
 
 
     def edit_local_image(self, settings, preset, folder):
@@ -2101,32 +1974,21 @@ class MainWindow(QMainWindow):
         self._invalidate_audio_status_cache(folder)
         self._invalidate_folder_cache(folder)
 
-        item = self.items_by_path.get(str(folder))
+        item = self.get_item(path=folder)
 
         if item is None:
             return
 
-        settings = (
-            self.settings_by_item.get(id(item))
-            or self.find_settings_for_path(folder)
-        )
+        settings = self.get_settings(item=item, path=folder)
 
         if settings is None:
             return
 
-        root = folder == Path(settings.source_folder).resolve()
+        is_root = self.is_root(folder, settings)
 
         self.tree.removeItemWidget(item, 1)
+        self.tree.setItemWidget(item, 1, self.create_folder_status(settings, folder, root=is_root))
 
-        self.tree.setItemWidget(
-            item,
-            1,
-            self.create_folder_status(
-                settings,
-                folder,
-                root=root,
-            )
-        )
 
     def get_local_preset(self, folder, preset):
         data = setutils.read_local_webm_settings(folder)
@@ -2169,32 +2031,20 @@ class MainWindow(QMainWindow):
     def _refresh_local_webm_status(self, folder):
         folder = Path(folder).resolve()
 
-        item = self.items_by_path.get(str(folder))
+        item = self.get_item(path=folder)
 
         if item is None:
             return
 
-        settings = self.settings_by_item.get(id(item))
-
-        if settings is None:
-            settings = self.find_settings_for_path(folder)
+        settings = self.get_settings(item=item, path=folder)
 
         if settings is None:
             return
 
-        root = folder == Path(settings.source_folder).resolve()
+        is_root = self.is_root(folder, settings)
 
         self.tree.removeItemWidget(item, 1)
-
-        self.tree.setItemWidget(
-            item,
-            1,
-            self.create_folder_status(
-                settings,
-                folder,
-                root=root,
-            )
-        )
+        self.tree.setItemWidget(item, 1, self.create_folder_status(settings, folder, root=is_root))
 
 
     def open_conversion_result(self, settings, preset, folder, preview=False):
@@ -2231,12 +2081,7 @@ class MainWindow(QMainWindow):
         else:
             local = self.get_local_preset(folder, preset)
 
-            converter = WebMConverter(
-                folder,
-                preset,
-                local,
-                source_root=settings.source_folder
-            )
+            converter = WebMConverter(folder, preset, local, source_root=settings.source_folder)
 
             if preview:
                 output = converter.get_preview_file()
@@ -2258,7 +2103,7 @@ class MainWindow(QMainWindow):
         if folder:
             folder = Path(folder).resolve()
 
-            item = self.items_by_path.get(str(folder))
+            item = self.get_item(path=folder)
 
             # Root folders don't get thumbnails.
             if item is not None and item.parent() is None:
@@ -2266,6 +2111,7 @@ class MainWindow(QMainWindow):
 
             try:
                 entries = list(folder.iterdir())
+
             except OSError:
                 entries = []
 
@@ -2279,16 +2125,12 @@ class MainWindow(QMainWindow):
                 if source:
                     paths.append((str(folder), source))
 
-                child_folders = sorted(
-                    (
-                        path for path in entries
-                        if path.is_dir()
-                    ),
+                child_folders = sorted((path for path in entries if path.is_dir()),
                     key=lambda path: path.name.lower(),
                 )
 
                 for child_folder in child_folders:
-                    child_item = self.items_by_path.get(str(child_folder.resolve()))
+                    child_item = self.get_item(path=child_folder)
 
                     if child_item is None:
                         continue
@@ -2299,6 +2141,7 @@ class MainWindow(QMainWindow):
                         paths.append((str(child_folder.resolve()), child_source))
 
         else:
+
             for path in self.items_by_path:
                 item_path = Path(path)
 
@@ -2307,7 +2150,7 @@ class MainWindow(QMainWindow):
                     continue
 
                 if item_path.is_dir():
-                    item = self.items_by_path.get(path)
+                    item = self.get_item(path=path)
 
                     if item is None or item.parent() is None:
                         continue
@@ -2338,7 +2181,7 @@ class MainWindow(QMainWindow):
         the cached PNG file.
         """
 
-        item = self.items_by_path.get(str(Path(path).resolve()))
+        item = self.get_item(path=path)
 
         if item is None:
             return
@@ -2416,8 +2259,11 @@ class MainWindow(QMainWindow):
 
     def restore_tree_state(self, state):
 
+        if not state:
+            return
+
         for path in sorted(state['expanded']):
-            item = self.items_by_path.get(path)
+            item = self.get_item(path=path)
 
             if item is not None:
                 item.setExpanded(True)
@@ -2468,29 +2314,19 @@ class MainWindow(QMainWindow):
 
     def __rescan_ready(self, mode, changed_paths, result):
 
+        state = self.get_tree_state()
+
         try:
             snapshots = result["snapshots"]
 
             if mode == "manual":
-                changed = {
-                    path
-                    for path, old in self._directory_snapshot.items()
-                    if snapshots.get(path) != old
-                }
+                changed = set([ path for path, old in self._directory_snapshot.items() if snapshots.get(path) != old ])
 
                 # New directories are also changes.
-                changed.update(
-                    path
-                    for path in snapshots
-                    if path not in self._directory_snapshot
-                )
+                changed.update(path for path in snapshots if path not in self._directory_snapshot)
 
                 # Deleted directories are changes too.
-                changed.update(
-                    path
-                    for path in self._directory_snapshot
-                    if path not in snapshots
-                )
+                changed.update(path for path in self._directory_snapshot if path not in snapshots)
 
                 if changed:
                     self.__incremental_rescan(changed)
@@ -2500,6 +2336,7 @@ class MainWindow(QMainWindow):
                 self._directory_snapshot = snapshots
 
             elif mode == "incremental":
+
                 # Conversion already tells us exactly which source folders
                 # changed, so refresh only those folders in the tree.
                 self.__incremental_rescan(changed_paths)
@@ -2513,11 +2350,8 @@ class MainWindow(QMainWindow):
 
                 # Remove stale snapshot entries below scanned folders.
                 for old_path in list(self._directory_snapshot):
-                    if any(
-                        old_path == root
-                        or old_path.startswith(root + os.sep)
-                        for root in scanned
-                    ) and old_path not in snapshots:
+
+                    if any(old_path == root or old_path.startswith(root + os.sep) for root in scanned) and (old_path not in snapshots):
                         del self._directory_snapshot[old_path]
 
             else:
@@ -2531,6 +2365,8 @@ class MainWindow(QMainWindow):
 
         finally:
             self.__finish_rescan()
+
+        self.restore_tree_state(state)
 
 
     def __rescan_error(self, message):
@@ -2577,8 +2413,7 @@ class MainWindow(QMainWindow):
         for settings in self.folders:
             self.add_folder_item(settings)
 
-        if state:
-            self.restore_tree_state(state)
+        self.restore_tree_state(state)
 
 
     def __incremental_rescan(self, changed_paths):
@@ -2603,7 +2438,7 @@ class MainWindow(QMainWindow):
         for folder in folders:
             folder = Path(folder).resolve()
 
-            settings = self.find_settings_for_path(folder)
+            settings = self.get_settings(path=folder)
 
             if settings is None:
                 continue
@@ -2625,15 +2460,12 @@ class MainWindow(QMainWindow):
                 current = current.parent
 
         for folder in affected:
-            item = self.items_by_path.get(str(folder))
+            item = self.get_item(path=folder)
 
             if item is None:
                 continue
 
-            settings = self.settings_by_item.get(id(item))
-
-            if settings is None:
-                settings = self.find_settings_for_path(folder)
+            settings = self.get_settings(item=item, path=folder)
 
             if settings is None:
                 continue
@@ -2655,12 +2487,16 @@ class MainWindow(QMainWindow):
 
     def _refresh_tree_folder(self, folder):
         folder = Path(folder).resolve()
-        settings = self.find_settings_for_path(folder)
+
+        item = self.get_item(path=folder)
+
+        if item is None:
+            return
+
+        settings = self.get_settings(item=item, path=folder)
 
         if settings is None:
             return
-
-        item = self.items_by_path.get(str(folder))
 
         if not folder.exists():
 
@@ -2679,7 +2515,7 @@ class MainWindow(QMainWindow):
 
         if item is None:
             parent_folder = folder.parent
-            parent_item = self.items_by_path.get(str(parent_folder))
+            parent_item = self.get_item(path=parent_folder)
 
             if parent_item is not None:
                 self._refresh_tree_folder(parent_folder)
@@ -2699,11 +2535,8 @@ class MainWindow(QMainWindow):
         FOLDER_LOADED_ROLE = Qt.ItemDataRole.UserRole + 1
 
         item.setData(0, FOLDER_LOADED_ROLE, False)
-
         self._populate_folder_children(item, folder, settings)
-
         item.setData(0, FOLDER_LOADED_ROLE, True)
-
         item.setExpanded(expanded)
 
         # Thumbnail только для этой папки.
@@ -2769,12 +2602,7 @@ class MainWindow(QMainWindow):
 
             effective_preset = self.get_local_image_preset(folder, preset)
 
-            self.enqueue_conversion((
-                settings,
-                effective_preset,
-                folder,
-                None,
-            ))
+            self.enqueue_conversion((settings, effective_preset, folder, None))
 
 
     def start_folder_all_conversions(self, settings, folder):
@@ -2836,9 +2664,11 @@ class MainWindow(QMainWindow):
                     if settings.mode == "WebM":
                         job_preset = preset
                         local = self.get_local_preset(folder, preset)
+
                     elif settings.mode == "Audio":
                         job_preset = preset
                         local = self.get_local_audio_settings(folder, preset)
+
                     else:
                         job_preset = self.get_local_image_preset(folder, preset)
                         local = None
@@ -2868,12 +2698,7 @@ class MainWindow(QMainWindow):
                 return
 
             child_folders = [ entry for entry in entries if entry.is_dir() ]
-
-            has_images = any(
-                entry.is_file()
-                and entry.suffix.lower() in WebMConverter.IMAGE_EXTENSIONS
-                for entry in entries
-            )
+            has_images = any(entry.is_file() and entry.suffix.lower() in WebMConverter.IMAGE_EXTENSIONS for entry in entries)
 
             # Конечная папка:
             # есть картинки и нет подпапок
@@ -2915,10 +2740,7 @@ class MainWindow(QMainWindow):
         if worker:
             worker.deleteLater()
 
-        changed_folders = {
-            Path(folder).resolve()
-            for folder in self._conversion_changed_folders
-        }
+        changed_folders = { Path(folder).resolve() for folder in self._conversion_changed_folders }
 
         self._conversion_changed_folders.clear()
 
@@ -2953,10 +2775,8 @@ class MainWindow(QMainWindow):
             self.progress.setFormat(f"{done}/{total} • {percent}% • ETA: {textutils.format_eta(eta)}")
 
         if self.taskbar_progress is not None:
-            self.taskbar_progress.set_progress(
-                done,
-                total
-            )
+            self.taskbar_progress.set_progress(done, total)
+
 
     def stop_conversion(self):
 

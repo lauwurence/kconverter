@@ -245,10 +245,7 @@ class ImageConverter():
 
                 mod_time = int(file.stat().st_mtime)
 
-                cache_settings = (
-                    mod_time,
-                    self.preset.cache_key,
-                )
+                cache_settings = (mod_time, self.preset.cache_key)
 
                 if output_file.exists() and self.cache.get(relative_file) == cache_settings:
                     continue
