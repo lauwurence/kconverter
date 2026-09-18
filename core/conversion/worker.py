@@ -214,9 +214,8 @@ class ConversionWorker(QThread):
                     converter = WebMConverter(
                         folder,
                         preset,
-                        local_preset,
-                        self.stop_event,
-                        self.add_progress,
+                        stop_event=self.stop_event,
+                        progress_callback=self.add_progress,
                         source_root=settings.source_folder
                     )
 

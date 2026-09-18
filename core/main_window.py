@@ -870,7 +870,8 @@ class MainWindow(QMainWindow):
                 if not root:
                     local_button = QToolButton()
 
-                    has_local = self.get_local_webm_preset(folder, preset) is not None
+                    has_local = setutils.read_local_webm_settings(folder).get(preset.name) is not None
+
                     local_button.setIcon(QIcon("icons/settings_local.svg" if has_local else "icons/settings.svg"))
                     local_button.setToolTip("Local WebM settings" + (" (override active)" if has_local else ""))
                     local_button.setFixedSize(27, 25)
@@ -941,10 +942,23 @@ class MainWindow(QMainWindow):
                 button.setFixedWidth(75 + 30 + 30)
                 button.setFixedHeight(30)
 
+            outdated = False
+
             if settings.mode == "Images":
                 outdated = self.folder_has_outdated_images(settings, preset, folder)
 
-            if settings.mode == "Images" and preset.output_folder:
+            elif settings.mode == "WebM":
+                converter = WebMConverter(folder, preset, source_root=settings.source_folder)
+
+                images = converter.get_images()
+
+                if images:
+                    should_convert, reason = converter.needs_conversion(images)
+
+                    if should_convert:
+                        outdated = True
+
+            if preset.output_folder:
 
                 if outdated:
                     button.setStyleSheet("""QPushButton { color: #ff9800; }""")
@@ -1007,9 +1021,7 @@ class MainWindow(QMainWindow):
             else:
 
                 if not root:
-                    local = self.get_local_webm_preset(folder, preset)
-
-                    converter = WebMConverter(folder, preset, local, source_root=settings.source_folder)
+                    converter = WebMConverter(folder, preset, source_root=settings.source_folder)
 
                     output = converter.get_preview_file()
 
@@ -1044,8 +1056,7 @@ class MainWindow(QMainWindow):
                     webm_folders = self.get_webm_folders(Path(folder))
 
                     for webm_folder in webm_folders:
-                        local = self.get_local_webm_preset(webm_folder, preset)
-                        converter = WebMConverter(webm_folder, preset, local, source_root=settings.source_folder)
+                        converter = WebMConverter(webm_folder, preset, source_root=settings.source_folder)
 
                         output = converter.get_output_file()
 
@@ -2212,9 +2223,7 @@ class MainWindow(QMainWindow):
                 )
 
         else:
-            local = self.get_local_webm_preset(folder, preset)
-
-            converter = WebMConverter(folder, preset, local, source_root=settings.source_folder)
+            converter = WebMConverter(folder, preset, source_root=settings.source_folder)
 
             if preview:
                 output = converter.get_preview_file()
@@ -2720,8 +2729,7 @@ class MainWindow(QMainWindow):
             queue_folders = self.get_webm_folders(folder)
 
             for path in queue_folders:
-                local = self.get_local_webm_preset(path, preset)
-                self.enqueue_conversion((settings, preset, path, local))
+                self.enqueue_conversion((settings, preset, path, None))
 
         else:
             image_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff"}
@@ -2754,7 +2762,7 @@ class MainWindow(QMainWindow):
 
             if settings.mode == "WebM":
                 job_preset = preset
-                local = self.get_local_webm_preset(folder, preset)
+                local = None
 
             elif settings.mode == "Audio":
                 job_preset = preset
@@ -2799,7 +2807,7 @@ class MainWindow(QMainWindow):
 
                     if settings.mode == "WebM":
                         job_preset = preset
-                        local = self.get_local_webm_preset(folder, preset)
+                        local = None
 
                     elif settings.mode == "Audio":
                         job_preset = preset

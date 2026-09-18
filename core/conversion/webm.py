@@ -18,7 +18,7 @@ from PIL import Image, ImageFilter
 from config import WEBM_CACHE_FILE, MINTERPOLATE, RESAMPLE, PROFILE_SRGB
 
 from ..local_webm import normalize_webm_settings
-from ..utils import textutils
+from ..utils import textutils, setutils
 
 
 class WebMConverter():
@@ -43,6 +43,8 @@ class WebMConverter():
         self.preset = preset
         self.settings = normalize_webm_settings(preset.webm)
 
+        local_settings = self.get_local_settings(folder, preset)
+
         if local_settings:
             self.settings.update(normalize_webm_settings(local_settings))
 
@@ -57,6 +59,11 @@ class WebMConverter():
             output = self.folder.parent / output
 
         self.output_folder = output.resolve()
+
+
+    def get_local_settings(self, folder, preset):
+        data = setutils.read_local_webm_settings(folder)
+        return data.get(preset.name)
 
 
     def get_images(self):
@@ -140,9 +147,9 @@ class WebMConverter():
                 data = pickle.load(file)
 
             if not isinstance(data, dict):
-                return {}
+                data = {}
 
-            return data
+            return data.get(self.preset.id, {})
 
         except Exception:
             return {}
@@ -151,15 +158,23 @@ class WebMConverter():
     def write_cache(self, signature):
 
         try:
+            with open(self.get_cache_file(), "rb") as file:
+                data = pickle.load(file)
+
+            if not isinstance(data, dict):
+                data = {}
+
+        except:
+            data = {}
+
+        data[self.preset.id] = {
+            'version' : 1,
+            'signature' : signature,
+        }
+
+        try:
             with open(self.get_cache_file(), "wb") as file:
-                pickle.dump(
-                    {
-                        "version": 1,
-                        "signature": signature,
-                    },
-                    file,
-                    protocol=pickle.HIGHEST_PROTOCOL,
-                )
+                pickle.dump(data, file, protocol=pickle.HIGHEST_PROTOCOL)
 
         except OSError as exc:
             self.log(f"WebM cache warning: {exc}")
