@@ -947,16 +947,16 @@ class MainWindow(QMainWindow):
             if settings.mode == "Images":
                 outdated = self.folder_has_outdated_images(settings, preset, folder)
 
-            elif settings.mode == "WebM":
-                converter = WebMConverter(folder, preset, source_root=settings.source_folder)
+            # elif settings.mode == "WebM":
+            #     converter = WebMConverter(folder, preset, source_root=settings.source_folder)
 
-                images = converter.get_images()
+            #     images = converter.get_images()
 
-                if images:
-                    should_convert, reason = converter.needs_conversion(images)
+            #     if images:
+            #         should_convert, reason = converter.needs_conversion(images)
 
-                    if should_convert:
-                        outdated = True
+            #         if should_convert:
+            #             outdated = True
 
             if preset.output_folder:
 
@@ -1018,7 +1018,7 @@ class MainWindow(QMainWindow):
 
                 layout.addWidget(size_label)
 
-            else:
+            elif settings.mode == "WebM":
 
                 if not root:
                     converter = WebMConverter(folder, preset, source_root=settings.source_folder)
@@ -1050,24 +1050,19 @@ class MainWindow(QMainWindow):
                 webm_size = 0
 
                 if preset.output_folder.strip():
-
-                    # If this folder itself contains images and has no child folders,
-                    # this will return exactly one WebM file.
                     webm_folders = self.get_webm_folders(Path(folder))
 
-                    for webm_folder in webm_folders:
+                    for i, webm_folder in enumerate([folder] + webm_folders):
                         converter = WebMConverter(webm_folder, preset, source_root=settings.source_folder)
 
                         output = converter.get_output_file()
 
                         try:
-                            if output.is_file():
-                                webm_size += output.stat().st_size
-
-                                # Keep the actual output path when there is only
-                                # one WebM in this folder.
-                                if len(webm_folders) == 1:
+                            if output.exists() and output.is_file():
+                                if not i:
                                     webm_output = output
+                                else:
+                                    webm_size += output.stat().st_size
 
                         except OSError:
                             continue
@@ -1076,7 +1071,7 @@ class MainWindow(QMainWindow):
                 # WebM button
                 # -------------------------------------------------------------------------
 
-                if webm_output is not None and webm_output.is_file() and len(webm_folders) == 1:
+                if webm_output is not None and webm_output.is_file():# and len(webm_folders) == 1:
                     webm_button = ConvertedFileButton(webm_output, self)
                     webm_button.setFixedHeight(25 if not root else 30)
                     webm_button.setFixedWidth(75)

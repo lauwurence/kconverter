@@ -33,13 +33,12 @@ class WebMConverter():
     def __init__(self,
                  folder,
                  preset,
-                 local_settings=None,
                  stop_event=None,
                  progress_callback=None,
                  source_root=None):
 
         self.folder = Path(folder).resolve()
-        self.source_root = Path(source_root).resolve() if source_root  else self.folder
+        self.source_root = Path(source_root).resolve() if source_root else self.folder
         self.preset = preset
         self.settings = normalize_webm_settings(preset.webm)
 
@@ -191,28 +190,19 @@ class WebMConverter():
             except OSError:
                 continue
 
-            frames.append(
-                (
-                    image.resolve().as_posix(),
-                    stat.st_mtime_ns,
-                    stat.st_size,
-                )
-            )
+            frames.append((
+                image.resolve().as_posix(),
+                stat.st_mtime_ns,
+                stat.st_size,
+            ))
 
         data = (
             2,
             tuple(frames),
             tuple(sorted(self.settings.items())),
-            (
-                self.preset.suffix,
-                self.preset.output_folder,
-            ),
-        )
+            (self.preset.suffix, self.preset.output_folder))
 
-        serialized = pickle.dumps(
-            data,
-            protocol=pickle.HIGHEST_PROTOCOL,
-        )
+        serialized = pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL)
 
         return hashlib.sha256(serialized).hexdigest()
 
