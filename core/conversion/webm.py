@@ -30,22 +30,16 @@ class WebMConverter():
         (33432,): f"Copyright {datetime.now().year} keyclap. All Rights Reserved.",
     }
 
+    def __init__(self,
+                 folder,
+                 preset,
+                 local_settings=None,
+                 stop_event=None,
+                 progress_callback=None,
+                 source_root=None):
 
-    def __init__(
-        self,
-        folder,
-        preset,
-        local_settings=None,
-        stop_event=None,
-        progress_callback=None,
-        source_root=None,
-    ):
         self.folder = Path(folder).resolve()
-        self.source_root = (
-            Path(source_root).resolve()
-            if source_root
-            else self.folder
-        )
+        self.source_root = Path(source_root).resolve() if source_root  else self.folder
         self.preset = preset
         self.settings = normalize_webm_settings(preset.webm)
 
@@ -66,12 +60,7 @@ class WebMConverter():
 
 
     def get_images(self):
-        images = [
-            path
-            for path in self.folder.iterdir()
-            if path.is_file()
-            and path.suffix.lower() in self.IMAGE_EXTENSIONS
-        ]
+        images = [ path for path in self.folder.iterdir() if path.is_file() and path.suffix.lower() in self.IMAGE_EXTENSIONS ]
 
         def natural_sort(path):
             numbers = re.findall(r"\d+", path.stem)
@@ -425,9 +414,7 @@ class WebMConverter():
                 break
 
         if self.process.returncode != 0:
-            raise RuntimeError(
-                f"FFmpeg exited with code {self.process.returncode}"
-            )
+            raise RuntimeError(f"FFmpeg exited with code {self.process.returncode}")
 
         self.process = None
 
@@ -502,11 +489,7 @@ class WebMConverter():
 
         preview = self.get_preview_file()
 
-        # Save preview BEFORE WebM conversion.
-        self.save_preview(
-            preview_frame,
-            preview,
-        )
+        self.save_preview(preview_frame, preview)
 
         # -------------------------------------------------------------------------
         # Concat
@@ -581,8 +564,13 @@ class WebMConverter():
             self.log(f"Downsample: {settings['downsample']}x")
 
         self.log(f"FPS: {settings['input_fps']} -> {settings['output_fps']}")
+        self.log(f"Speed: {settings["speed"]}")
 
         self.log(f"CRF: {settings['crf']}")
+        self.log(f"Interpolate: {settings['interpolate']}")
+
+        self.log(f"Loop: {settings['interpolate']}")
+
 
         # -------------------------------------------------------------------------
         # Convert WebM
@@ -599,15 +587,9 @@ class WebMConverter():
         # -------------------------------------------------------------------------
 
         if output.exists():
+            self.write_cache(self.get_source_signature(images))
 
-            self.write_cache(
-                self.get_source_signature(images)
-            )
-
-            self.log(
-                f"Finished: {output} "
-                f"({textutils.format_size(output.stat().st_size)})"
-            )
+            self.log(f"Finished: {output} ({textutils.format_size(output.stat().st_size)})")
 
         # -------------------------------------------------------------------------
         # Progress

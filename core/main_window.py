@@ -851,7 +851,7 @@ class MainWindow(QMainWindow):
         except OSError:
             return None
 
-        return images[0] if images else None
+        return images[-1] if images else None
 
 
     def create_folder_status(self, settings, folder, root=False):
@@ -1045,7 +1045,6 @@ class MainWindow(QMainWindow):
 
                     for webm_folder in webm_folders:
                         local = self.get_local_webm_preset(webm_folder, preset)
-
                         converter = WebMConverter(webm_folder, preset, local, source_root=settings.source_folder)
 
                         output = converter.get_output_file()
@@ -2721,8 +2720,8 @@ class MainWindow(QMainWindow):
             queue_folders = self.get_webm_folders(folder)
 
             for path in queue_folders:
-                effective_preset = self.get_local_image_preset(path, preset, settings)
-                self.enqueue_conversion((settings, effective_preset, path, None))
+                local = self.get_local_webm_preset(path, preset)
+                self.enqueue_conversion((settings, preset, path, local))
 
         else:
             image_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff"}
