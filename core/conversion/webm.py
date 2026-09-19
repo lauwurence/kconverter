@@ -267,7 +267,7 @@ class WebMConverter():
                 img = img.filter(
                     ImageFilter.UnsharpMask(
                         radius=sharpen_radius,
-                        percent=int(sharpen * 100),
+                        percent=int(sharpen),
                         threshold=0,
                     )
                 )
