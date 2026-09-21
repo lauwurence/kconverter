@@ -3100,7 +3100,7 @@ class MainWindow(QMainWindow):
         if not self.project_is_dirty:
             return True
 
-        result = QMessageBox.question(self, "Unsaved changes", "The project has unsaved changes. Save them?", QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel)
+        result = QMessageBox.question(self, "Unsaved Changes", "The project has unsaved changes. Save them?", QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel)
 
         if result == QMessageBox.StandardButton.Save:
             self.save_project()
