@@ -2,8 +2,10 @@
 ## Image Converter
 
 import os
-import pickle
 import re
+import json
+import pickle
+
 from io import BytesIO
 from time import time
 from threading import Event
@@ -283,6 +285,18 @@ class ImageConverter():
             with Image.open(source) as image:
                 webp_method = None
 
+                # Read layer position from PNG metadata
+                layer_x = image.info.get("x")
+                layer_y = image.info.get("y")
+
+                layer_position = None
+
+                if layer_x is not None and layer_y is not None:
+                    layer_position = {
+                        "x": int(layer_x),
+                        "y": int(layer_y),
+                    }
+
                 if self.preset.panorama:
                     is_background = (image.width == 12000) and (image.height == 6000)
 
@@ -360,6 +374,13 @@ class ImageConverter():
                 for tag, value in EXIF_DATA.items():
                     exif[tag] = value
 
+                # Preserve layer position in EXIF
+                if layer_position is not None:
+                    exif[270] = json.dumps(
+                        layer_position,
+                        separators=(",", ":"),
+                    )
+
                 # RGB or RGBA
                 if image.mode != convert_mode:
                     converted_image = image.convert(convert_mode)
@@ -368,7 +389,7 @@ class ImageConverter():
 
                 output = output.with_suffix(".jpg" if output_format == "JPEG" else ".webp")
 
-                # #################################################################
+                # ##############################################################
                 # WebP
 
                 if output_format == "WEBP":
@@ -416,7 +437,7 @@ class ImageConverter():
                         icc_profile=icc_profile,
                     )
 
-                # #################################################################
+                # ##############################################################
                 # JPEG
 
                 else:
@@ -460,9 +481,9 @@ class ImageConverter():
                     )
 
 
-                # #################################################################
+                # ##############################################################
                 # Result
-                # #################################################################
+                # ##############################################################
 
                 source_size = source.stat().st_size
                 saved_size = output.stat().st_size
