@@ -101,7 +101,10 @@ class ConvertedFileButton(QPushButton):
         )
 
     def enterEvent(self, event):
-        self.update_tooltip()
+        try:
+            self.update_tooltip()
+        except Exception:
+            pass
         super().enterEvent(event)
 
 

@@ -25,8 +25,6 @@ NON_BACKGROUND_OVERSAMPLES = {
     ""  : 1.25,
 }
 
-# PROBABLE_SUFFIXES = [ (f"@{o}.webp" if o != 1.0 else ".webp") for o in NON_BACKGROUND_OVERSAMPLES.values() ]
-
 class ImageConverter():
 
     INPUT_SUFFIXES = {".png"}
@@ -280,6 +278,20 @@ class ImageConverter():
 
         output.parent.mkdir(parents=True, exist_ok=True)
 
+        for ext in [".webp", ".jpg"]:
+
+            for o in NON_BACKGROUND_OVERSAMPLES.values():
+                stem = output.stem.rsplit("@", 1)[0]
+
+                if o == 1.0:
+                    s = ""
+                else:
+                    s = f"@{o}"
+
+                fn = output.parent / f'{stem}{s}{ext}'
+
+                Path(fn).unlink(missing_ok=True)
+
         try:
 
             with Image.open(source) as image:
@@ -404,10 +416,10 @@ class ImageConverter():
 
                         quality = (low + high) // 2
 
-                        output_buffer = BytesIO()
+                        buf = BytesIO()
 
                         converted_image.save(
-                            output_buffer,
+                            buf,
                             format="WEBP",
                             quality=quality,
                             lossless=False,
@@ -416,8 +428,8 @@ class ImageConverter():
                             icc_profile=icc_profile,
                         )
 
-                        file_size = output_buffer.tell()
-                        output_buffer.close()
+                        file_size = buf.tell()
+                        buf.close()
 
                         if file_size <= target_size * 1024:
                             best_quality = quality
@@ -452,17 +464,17 @@ class ImageConverter():
 
                         quality = (low + high) // 2
 
-                        output_buffer = BytesIO()
+                        buf = BytesIO()
 
                         converted_image.save(
-                            output_buffer,
+                            buf,
                             format="JPEG",
                             quality=quality,
                             icc_profile=icc_profile,
                         )
 
-                        file_size = output_buffer.tell()
-                        output_buffer.close()
+                        file_size = buf.tell()
+                        buf.close()
 
                         if file_size <= target_size * 1024:
                             best_quality = quality
