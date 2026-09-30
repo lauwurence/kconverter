@@ -40,7 +40,6 @@ from config import (
     FOLDER_ROW_HEIGHT, ICON,
 )
 
-
 def folder_cache_key(folder, preset):
     return str(Path(folder).resolve()), preset.cache_key
 
