@@ -151,9 +151,10 @@ class ImageConverter():
 
                 if o != 1.0:
                     suffix = f'@{o}.suffix'
-                    if s: stem = stem[:-len(s)]
                 else:
                     suffix = ".suffix"
+
+                if s: stem = stem[:-len(s)]
 
                 path = output.parent / f'{stem}{suffix}'
 
@@ -230,9 +231,10 @@ class ImageConverter():
 
                             if o != 1.0:
                                 suffix = f'@{o}'
-                                if s: stem = stem[:-len(s)]
                             else:
                                 suffix = ""
+
+                            if s: stem = stem[:-len(s)]
 
                             break
 
