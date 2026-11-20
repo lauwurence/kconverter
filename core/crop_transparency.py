@@ -41,7 +41,7 @@ class CropTransparencyWorker(QThread):
                 cropped = image.crop(bbox)
 
                 output_file = output_folder / file.name
-                cropped.save(output_file, format="PNG")
+                cropped.save(output_file, format='PNG')
 
                 return {
                     'status' : 'ok',

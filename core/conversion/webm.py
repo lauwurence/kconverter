@@ -279,13 +279,13 @@ class WebMConverter():
             for (index,), value in self.EXIF_DATA.items():
                 exif[index] = value
 
-            rgb_img = img.convert("RGB")
+            rgb_img = img.convert('RGB')
 
             rgb_img.save(
                 output_file,
-                format="JPEG",
+                format='JPEG',
                 quality=image_quality,
-                compression="jpeg",
+                compression='jpeg',
                 icc_profile=icc_profile,
                 exif=exif,
             )

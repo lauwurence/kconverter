@@ -39,6 +39,7 @@ class Preset():
                  panorama=False,
                  webp=False,
                  webp_method=4,
+                 alpha_enabled=False,
                  enabled_overrides=None,
                  bitrate=128):
 
@@ -60,6 +61,7 @@ class Preset():
         self.panorama = panorama
         self.webp = webp
         self.webp_method = webp_method
+        self.alpha_enabled = alpha_enabled
         self.bitrate = int(bitrate)
         self.enabled_overrides = set(enabled_overrides or [])
 
@@ -82,6 +84,7 @@ class Preset():
             self.panorama,
             self.webp,
             self.webp_method,
+            self.alpha_enabled,
             self.bitrate,
         )
 
@@ -105,6 +108,7 @@ class Preset():
             "panorama": self.panorama,
             "webp": self.webp,
             "webp_method": self.webp_method,
+            "alpha_enabled": self.alpha_enabled,
             "bitrate": self.bitrate,
             "enabled_overrides": sorted(self.enabled_overrides),
         }
@@ -135,6 +139,7 @@ class Preset():
             data.get("panorama", False),
             data.get("webp", False),
             data.get("webp_method", 4),
+            data.get("alpha_enabled", False),
             enabled_overrides=data.get("enabled_overrides", []),
             bitrate=int(data.get("bitrate", 128)),
         )
@@ -308,6 +313,9 @@ class PresetDialog(QDialog):
         if self._local_checks['webp_method'].isChecked():
             result["webp_method"] = self.webp_method.value()
 
+        if self._local_checks['alpha_enabled'].isChecked():
+            result["alpha_enabled"] = self.alpha_enabled.value()
+
         if "bitrate" in self._local_checks and self._local_checks["bitrate"].isChecked():
             result["bitrate"] = int(self.bitrate.currentData())
 
@@ -442,9 +450,7 @@ class PresetDialog(QDialog):
 
             self.webp_check = QCheckBox()
             self.webp_check.setChecked("webp" in self.enabled_overrides)
-            self.webp_check.setToolTip(
-                "Override the global 'WebP' setting for this folder."
-            )
+            self.webp_check.setToolTip("Override the global 'WebP' setting for this folder.")
 
             webp_layout.addWidget(self.webp_check)
 
@@ -464,6 +470,16 @@ class PresetDialog(QDialog):
             "WebP Method:",
             self.webp_method,
             "webp_method",
+        )
+
+        self.alpha_enabled = QCheckBox()
+        self.alpha_enabled.setChecked(self.preset.alpha_enabled)
+
+        self._add_local_field(
+            form,
+            "Alpha:",
+            self.alpha_enabled,
+            "alpha_enabled",
         )
 
     def add_audio_settings(self, form):
@@ -641,6 +657,7 @@ class PresetDialog(QDialog):
             self.preset.panorama = self.panorama_enabled.isChecked()
             self.preset.webp = self.webp_enabled.isChecked()
             self.preset.webp_method = self.webp_method.value()
+            self.preset.alpha_enabled = self.alpha_enabled.isChecked()
 
             if self.preset.min_quality > self.preset.max_quality:
                 QMessageBox.warning(self, "Invalid quality", "Min quality cannot be greater than Max quality.")

@@ -127,7 +127,7 @@ class ThumbnailWorker(QObject):
                 # directly instead of fully decoding a huge camera image.
                 try:
                     image.draft(
-                        "RGB",
+                        'RGB',
                         (
                             THUMBNAIL_HEIGHT *32,
                             THUMBNAIL_HEIGHT *32,
@@ -141,19 +141,16 @@ class ThumbnailWorker(QObject):
 
                 image = ImageOps.exif_transpose(image)
 
-                if image.mode not in ("RGB", "RGBA"):
-                    if "A" in image.getbands():
-                        image = image.convert("RGBA")
+                if image.mode not in ('RGB', 'RGBA'):
+                    if 'A' in image.getbands():
+                        image = image.convert('RGBA')
                     else:
-                        image = image.convert("RGB")
+                        image = image.convert('RGB')
 
                 # BILINEAR is considerably cheaper than BICUBIC and is
                 # sufficient for small UI thumbnails.
                 image.thumbnail(
-                    (
-                        int(THUMBNAIL_HEIGHT * 3),
-                        int(THUMBNAIL_HEIGHT * 3),
-                    ),
+                    (int(THUMBNAIL_HEIGHT * 3), int(THUMBNAIL_HEIGHT * 3)),
                     Image.Resampling.BILINEAR,
                 )
 
@@ -166,7 +163,7 @@ class ThumbnailWorker(QObject):
                 # thumbnails. Low compression is intentionally used here.
                 image.save(
                     cache,
-                    "PNG",
+                    'PNG',
                     optimize=False,
                     compress_level=1,
                 )

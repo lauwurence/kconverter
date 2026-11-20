@@ -317,11 +317,11 @@ class ImageConverter():
                     if is_background:
 
                         if self.preset.webp:
-                            output_format = "WEBP"
+                            output_format = 'WEBP'
                         else:
-                            output_format = "JPEG"
+                            output_format = 'JPEG'
 
-                        convert_mode = "RGB"
+                        convert_mode = 'RGB'
 
                         width = self.resolution_width
                         height = self.resolution_height
@@ -337,8 +337,8 @@ class ImageConverter():
                             oversample = o
                             break
 
-                        output_format = "WEBP"
-                        convert_mode = "RGBA"
+                        output_format = 'WEBP'
+                        convert_mode = 'RGBA'
                         webp_method = 6
 
                         width = image.width * (self.resolution_width * oversample / 12000)
@@ -346,11 +346,14 @@ class ImageConverter():
 
                 else:
                     if self.preset.webp:
-                        output_format = "WEBP"
+                        output_format = 'WEBP'
                     else:
-                        output_format = "JPEG"
+                        output_format = 'JPEG'
 
-                    convert_mode = "RGB"
+                    if self.preset.alpha_enabled:
+                        convert_mode = 'RGBA'
+                    else:
+                        convert_mode = 'RGB'
 
                     if self.resize_mode == "Resolution":
                         width = self.resolution_width
@@ -401,12 +404,12 @@ class ImageConverter():
                 else:
                     converted_image = image
 
-                output = output.with_suffix(".jpg" if output_format == "JPEG" else ".webp")
+                output = output.with_suffix(".jpg" if output_format == 'JPEG' else ".webp")
 
                 # ##############################################################
                 # WebP
 
-                if output_format == "WEBP":
+                if output_format == 'WEBP':
                     low = minimum_quality
                     high = maximum_quality
                     best_quality = minimum_quality
@@ -422,7 +425,7 @@ class ImageConverter():
 
                         converted_image.save(
                             buf,
-                            format="WEBP",
+                            format='WEBP',
                             quality=quality,
                             lossless=False,
                             # method=webp_method or self.preset.webp_method,
@@ -443,7 +446,7 @@ class ImageConverter():
 
                     converted_image.save(
                         output,
-                        format="WEBP",
+                        format='WEBP',
                         quality=final_quality,
                         lossless=False,
                         method=webp_method or self.preset.webp_method,
@@ -470,7 +473,7 @@ class ImageConverter():
 
                         converted_image.save(
                             buf,
-                            format="JPEG",
+                            format='JPEG',
                             quality=quality,
                             icc_profile=icc_profile,
                         )
@@ -488,7 +491,7 @@ class ImageConverter():
 
                     converted_image.save(
                         output,
-                        format="JPEG",
+                        format='JPEG',
                         quality=final_quality,
                         icc_profile=icc_profile,
                         exif=exif,
